@@ -1,0 +1,386 @@
+.all-profile-wrapper {
+  max-width: 1100px;
+  margin: 40px auto;
+  background: #fff;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.all-profile-header {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 20px;
+  margin-bottom: 25px;
+}
+
+/* Main photo wrapper + fixed 2x2 size */
+.all-profile-photo {
+  text-align: center;
+}
+
+.all-photo-preview {
+  width: 200px;       /* Fixed 2x2 size */
+  height: 200px;
+  margin: 0 auto 12px;
+  border-radius: 6px; /* or 50% for circle */
+  overflow: hidden;
+  border: 2px solid #ddd;
+  background: #f2f2f2;
+  position: relative;
+}
+
+.all-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;      /* fills and crops */
+  object-position: center;
+  display: block;
+}
+
+.all-photo-upload-btn {
+  background: #a00026;
+  color: #fff;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.all-photo-upload-btn:hover {
+  opacity: .85;
+}
+
+.all-profile-main h1 {
+  margin: 0 0 6px;
+  font-size: 24px;
+}
+
+.all-profile-main input[name="headline"] {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  font-size: 14px;
+}
+
+/* Sections & form */
+.all-section {
+  margin-bottom: 30px;
+}
+
+.all-section h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+}
+
+.all-section h3 {
+  font-size: 15px;
+  margin: 10px 0;
+}
+
+.all-profile-form label {
+  display: block;
+  font-size: 13px;
+  margin: 10px 0 4px;
+  font-weight: 600;
+}
+
+.all-profile-form input,
+.all-profile-form select,
+.all-profile-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.all-profile-form textarea {
+  resize: vertical;
+}
+
+.all-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.all-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.all-flex {
+  display: flex;
+  gap: 10px;
+}
+
+.all-submit-wrap {
+  text-align: right;
+  border-top: 1px solid #eee;
+  padding-top: 20px;
+}
+
+.all-btn-primary {
+  background: #a00026;
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.all-btn-primary:hover {
+  opacity: .9;
+}
+
+.all-notice.all-success {
+  background: #e5f8ea;
+  border: 1px solid #8fd09f;
+  color: #1f6a33;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+/* Gallery styles */
+.all-gallery-container {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.all-gallery-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.all-gallery-list {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.all-gallery-thumb img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.all-gallery-upload {
+  width: 60px;
+  height: 60px;
+  border: 2px dashed #ccc;
+  border-radius: 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.all-gallery-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.all-upload-text {
+  font-size: 24px;
+  color: #aaa;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .all-profile-wrapper {
+    margin: 20px;
+    padding: 20px;
+  }
+
+  .all-profile-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .all-grid-2,
+  .all-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  
+  /* ===== MEET SINGLES GRID ===== */
+
+.afl-members-grid-wrapper {
+  max-width: 1400px;
+  margin: 30px auto;
+  padding: 0 20px 40px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.afl-members-title {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.afl-members-grid {
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+
+/* Card */
+.afl-member-card {
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Photo area */
+.afl-member-photo {
+  width: 100%;
+  height: 210px;          /* similar to FilipinoCupid */
+  overflow: hidden;
+  background: #eee;
+}
+
+.afl-member-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Body */
+.afl-member-body {
+  padding: 8px 10px 10px;
+  font-size: 12px;
+}
+
+.afl-member-body h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.afl-member-location {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.afl-member-headline {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #111827;
+  min-height: 28px;
+}
+
+/* Buttons */
+.afl-member-actions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.afl-card-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  background: #a00026;
+  color: #fff;
+}
+
+.afl-card-btn.afl-outline {
+  background: #fff;
+  color: #a00026;
+  border: 1px solid #a00026;
+}
+
+.afl-card-btn:hover {
+  opacity: .9;
+}
+
+
+/* Placeholders */
+.afl-placeholder img {
+  opacity: .5;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .afl-members-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .afl-members-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .afl-members-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+.afl-icon-row{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+}
+
+.afl-icon-btn{
+    width:36px;
+    height:36px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:50%;
+    background:#f3f4f6;
+    color:#374151;
+    text-decoration:none;
+}
+
+.afl-icon-btn .dashicons{
+    font-size:20px;
+}
+
+.afl-icon-btn:hover{
+    background:#fee2e2;
+    color:#a00026;
+}
+
+.afl-lightbox-panel.is-loading:after{
+  content:"";
+  position:absolute;
+  width:44px;height:44px;
+  border-radius:999px;
+  border:4px solid rgba(255,255,255,.25);
+  border-top-color:#fff;
+  animation:aflSpin .8s linear infinite;
+}
+@keyframes aflSpin{to{transform:rotate(360deg);}}
+
+
+}
