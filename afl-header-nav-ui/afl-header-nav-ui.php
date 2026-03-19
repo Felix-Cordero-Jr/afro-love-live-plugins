@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AFL Meet Singles Header UI
  * Description: Responsive Meet Singles header UI including top navigation, profile summary bar, activity/message badges, presence indicator, and match toolbar controls.
- * Version: 1.1.0
+ * Version: 1.2.1
  * Author: Felix Cordero Jr.
  */
 
@@ -13,11 +13,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Class AFL_Meet_Singles_Header_UI
  *
- * System scope:
- * - Renders the Meet Singles page header and toolbar via shortcode.
- * - Provides AJAX endpoints for live message/activity counters.
- * - Tracks lightweight user presence using user meta timestamps.
- * - Outputs responsive UI assets for front-end logged-in members.
+ * System responsibilities:
+ * - Render the Meet Singles top navigation and profile summary bar.
+ * - Render the match toolbar and filter modal.
+ * - Provide AJAX endpoints for live counters only.
+ * - Track lightweight user presence using user meta timestamps.
+ *
+ * Architecture note:
+ * - This header plugin no longer renders member discovery results on the same page.
+ * - Member rendering should be handled by [afro_member_grid].
+ * - This plugin only controls filter/querystring state.
  */
 final class AFL_Meet_Singles_Header_UI {
 
@@ -28,7 +33,7 @@ final class AFL_Meet_Singles_Header_UI {
 	/**
 	 * Plugin asset and cache-busting version.
 	 */
-	const VERSION = '1.1.0';
+	const VERSION = '1.2.1';
 
 	/**
 	 * Public shortcode used to render the full header UI.
@@ -44,8 +49,7 @@ final class AFL_Meet_Singles_Header_UI {
 	/**
 	 * Chat table base name.
 	 *
-	 * Note:
-	 * - WordPress table prefix is added dynamically at runtime.
+	 * WordPress table prefix is added dynamically at runtime.
 	 */
 	const CHAT_TABLE = 'afl_chat_messages';
 
@@ -62,7 +66,7 @@ final class AFL_Meet_Singles_Header_UI {
 	const INBOX_FAV_META_KEY = 'afl_inbox_fav_ids';
 
 	/**
-	 * User meta key used for lightweight online presence tracking.
+	 * User meta key used for lightweight presence tracking.
 	 */
 	const PRESENCE_META_KEY = 'afl_last_active';
 
@@ -243,7 +247,7 @@ final class AFL_Meet_Singles_Header_UI {
 		$photo_id = (int) get_user_meta( $user_id, 'all_profile_photo', true );
 
 		if ( $photo_id ) {
-			$url = wp_get_attachment_image_url( $photo_id, 'thumbnail' );
+			$url = wp_get_attachment_image_url( $photo_id, 'medium' );
 
 			if ( $url ) {
 				return $url;
@@ -253,11 +257,11 @@ final class AFL_Meet_Singles_Header_UI {
 		$avatar_url = get_avatar_url(
 			$user_id,
 			[
-				'size' => 96,
+				'size' => 320,
 			]
 		);
 
-		return $avatar_url ? $avatar_url : 'https://www.gravatar.com/avatar/?s=96&d=mp';
+		return $avatar_url ? $avatar_url : 'https://www.gravatar.com/avatar/?s=320&d=mp';
 	}
 
 	/**
@@ -308,11 +312,10 @@ final class AFL_Meet_Singles_Header_UI {
 			]
 		);
 
-		$css = '
+		$css = <<<'CSS'
 /* ============================================================
  * AFL MEET SINGLES HEADER UI
- * Front-end responsive header, profile bar, activity counters,
- * and match toolbar for logged-in members.
+ * Version: 1.2.1
  * ============================================================ */
 
 :root{
@@ -320,7 +323,6 @@ final class AFL_Meet_Singles_Header_UI {
   --afl-brand:#7b001a;
   --afl-border:#e5e7eb;
   --afl-text:#111827;
-  --afl-text-strong:#000000;
   --afl-badge:#ef4444;
   --afl-white:#ffffff;
   --afl-radius:14px;
@@ -353,7 +355,6 @@ final class AFL_Meet_Singles_Header_UI {
   display:none;
 }
 
-/* Mobile menu trigger */
 .afl-hdr-toggle{
   display:none;
   width:44px;
@@ -465,7 +466,6 @@ final class AFL_Meet_Singles_Header_UI {
 
 /* ============================================================
  * ACTIVITY DROPDOWN
- * Text forced to black for visibility and consistent contrast.
  * ============================================================ */
 .afl-hdr-activity-menu{
   position:absolute;
@@ -651,26 +651,16 @@ final class AFL_Meet_Singles_Header_UI {
   margin:12px auto 0;
   padding:0 14px;
   box-sizing:border-box;
-  position:relative !important;
-  top:auto !important;
-  left:auto !important;
-  right:auto !important;
-  bottom:auto !important;
-  transform:none !important;
-  z-index:auto !important;
 }
 
 .afl-mt-bar{
+  max-width:1200px;
+  margin:0 auto;
   display:flex;
   gap:10px;
   align-items:center;
   flex-wrap:wrap;
-  position:relative !important;
-  top:auto !important;
-  left:auto !important;
-  right:auto !important;
-  bottom:auto !important;
-  transform:none !important;
+  position:relative;
 }
 
 .afl-mt-btn{
@@ -982,7 +972,7 @@ final class AFL_Meet_Singles_Header_UI {
 }
 
 /* ============================================================
- * RESPONSIVE BEHAVIOR
+ * RESPONSIVE
  * ============================================================ */
 @media (max-width:820px){
   .afl-hdr-nav{
@@ -1063,9 +1053,9 @@ final class AFL_Meet_Singles_Header_UI {
     max-height:calc(100vh - 94px);
   }
 }
-';
+CSS;
 
-		$js = '
+		$js = <<<'JS'
 (function($){
 
   function clampBadge(n){
@@ -1144,13 +1134,6 @@ final class AFL_Meet_Singles_Header_UI {
 
   $(document).on("click", ".afl-hdr-nav, .afl-hdr-activity-menu", function(e){
     e.stopPropagation();
-  });
-
-  $(document).on("keydown", function(e){
-    if(e.key === "Escape"){
-      closeActivity();
-      closeMobileMenu();
-    }
   });
 
   /* ============================================================
@@ -1295,7 +1278,7 @@ final class AFL_Meet_Singles_Header_UI {
     $(".afl-mt-tab").removeClass("is-active");
     $(this).addClass("is-active");
     $("[data-afl-tabpanel]").hide();
-    $(`[data-afl-tabpanel="${t}"]`).show();
+    $('[data-afl-tabpanel="' + t + '"]').show();
   });
 
   $(document).on("click", "[data-afl-pill]", function(e){
@@ -1304,6 +1287,7 @@ final class AFL_Meet_Singles_Header_UI {
     const val = $(this).data("afl-val");
     const q = qsGet();
     q[key] = String(val);
+    q.shuffle_seed = String(Date.now());
     qsSet(q);
   });
 
@@ -1318,23 +1302,27 @@ final class AFL_Meet_Singles_Header_UI {
   $(document).on("click", ".afl-mt-apply-sort", function(){
     const q = qsGet();
     q.sort = $("#aflMtSortSelect").val() || "";
+    q.shuffle_seed = String(Date.now());
     qsSet(q);
   });
 
   $(document).on("click", ".afl-mt-apply-criteria", function(){
-    const q = qsGet();
-    q.seek       = $("#aflSeek").val() || "any";
-    q.ageMin     = $("#aflAgeMin").val() || "";
-    q.ageMax     = $("#aflAgeMax").val() || "";
-    q.country    = $("#aflCountry").val() || "";
-    q.city       = $("#aflCity").val() || "";
-    q.area       = $("#aflArea").val() || "";
-    q.within     = $("#aflWithin").val() || "";
-    q.verified   = $("#aflVerified").is(":checked") ? "1" : "";
-    q.with_photo = $("#aflWithPhoto").is(":checked") ? "1" : "";
-    closeOverlay();
-    qsSet(q);
-  });
+  const q = qsGet();
+
+  q.seek         = $("#aflSeek").val() || "any";
+  q.ageMin       = $("#aflAgeMin").val() || "";
+  q.ageMax       = $("#aflAgeMax").val() || "";
+  q.country      = $("#aflCountry").val() || "";
+  q.city         = $("#aflCity").val() || "";
+  q.verified     = $("#aflVerified").is(":checked") ? "1" : "";
+  q.with_photo   = $("#aflWithPhoto").is(":checked") ? "1" : "";
+  q.shuffle_seed = String(Date.now());
+
+  delete q.tab;
+
+  closeOverlay();
+  qsSet(q);
+});
 
   $(document).on("click", ".afl-mt-cancel", function(){
     closeOverlay();
@@ -1373,20 +1361,18 @@ final class AFL_Meet_Singles_Header_UI {
     const seek = (q.seek || "any").toLowerCase();
     $("#aflSeek").val(seek);
     $(".afl-mt-seg [data-seek]").removeClass("is-active");
-    $(`.afl-mt-seg [data-seek="${seek}"]`).addClass("is-active");
+    $('.afl-mt-seg [data-seek="' + seek + '"]').addClass("is-active");
 
     $("#aflAgeMin").val(q.ageMin || "20");
     $("#aflAgeMax").val(q.ageMax || "25");
     $("#aflCountry").val(q.country || "");
     $("#aflCity").val(q.city || "");
-    $("#aflArea").val(q.area || "");
-    $("#aflWithin").val(q.within || "");
     $("#aflVerified").prop("checked", q.verified === "1");
     $("#aflWithPhoto").prop("checked", q.with_photo === "1");
   });
 
 })(jQuery);
-';
+JS;
 
 		wp_add_inline_style( 'afl-meet-header-ui', $css );
 		wp_add_inline_script( 'afl-meet-header-ui', $js );
@@ -1554,8 +1540,8 @@ final class AFL_Meet_Singles_Header_UI {
 			return '';
 		}
 
-		$user    = wp_get_current_user();
-		$user_id = (int) $user->ID;
+		$user     = wp_get_current_user();
+		$user_id  = (int) $user->ID;
 
 		$home_url          = self::get_home_url();
 		$messages_url      = self::get_messages_url();
@@ -1567,7 +1553,7 @@ final class AFL_Meet_Singles_Header_UI {
 		$profile_views_url = self::get_profile_views_url();
 		$blocks_url        = self::get_blocks_url();
 
-		$avatar_url  = esc_url( self::avatar_url( $user_id ) );
+		$avatar_url   = esc_url( self::avatar_url( $user_id ) );
 		$display_name = esc_html( $user->display_name );
 
 		$is_online   = self::is_user_online( $user_id );
@@ -1696,7 +1682,7 @@ final class AFL_Meet_Singles_Header_UI {
 			</div>
 			<div class="afl-mt-actions">
 				<button class="afl-mt-ghost afl-mt-cancel" type="button">Cancel</button>
-				<button class="afl-mt-primary afl-mt-apply-sort" type="button">Save</button>
+				<button class="afl-mt-primary afl-mt-apply-sort" type="button">Apply</button>
 			</div>
 		</div>
 
@@ -1714,7 +1700,6 @@ final class AFL_Meet_Singles_Header_UI {
 			</div>
 
 			<div class="afl-mt-modal-body">
-				<!-- BASIC -->
 				<div data-afl-tabpanel="basic">
 
 					<div class="afl-mt-section">
@@ -1896,115 +1881,9 @@ final class AFL_Meet_Singles_Header_UI {
 							<option value="Tajoura">Tajoura</option>
 							<option value="Ain Zara">Ain Zara</option>
 						</select>
-
-						<div style="height:10px"></div>
-<!--
-						<select id="aflArea" class="afl-mt-field">
-							<option value="">Select area</option>
-							<option value="Nasr City">Nasr City</option>
-							<option value="Heliopolis">Heliopolis</option>
-							<option value="Maadi">Maadi</option>
-							<option value="Zamalek">Zamalek</option>
-							<option value="New Cairo">New Cairo</option>
-							<option value="Stanley">Stanley</option>
-							<option value="Smouha">Smouha</option>
-							<option value="Gleem">Gleem</option>
-							<option value="Miami">Miami</option>
-							<option value="Sidi Gaber">Sidi Gaber</option>
-							<option value="Ikeja">Ikeja</option>
-							<option value="Lekki">Lekki</option>
-							<option value="Victoria Island">Victoria Island</option>
-							<option value="Surulere">Surulere</option>
-							<option value="Yaba">Yaba</option>
-							<option value="Wuse">Wuse</option>
-							<option value="Garki">Garki</option>
-							<option value="Maitama">Maitama</option>
-							<option value="Asokoro">Asokoro</option>
-							<option value="Gwarinpa">Gwarinpa</option>
-							<option value="Westlands">Westlands</option>
-							<option value="Kilimani">Kilimani</option>
-							<option value="Karen">Karen</option>
-							<option value="Lavington">Lavington</option>
-							<option value="Embakasi">Embakasi</option>
-							<option value="Sandton">Sandton</option>
-							<option value="Rosebank">Rosebank</option>
-							<option value="Soweto">Soweto</option>
-							<option value="Midrand">Midrand</option>
-							<option value="Randburg">Randburg</option>
-							<option value="Sea Point">Sea Point</option>
-							<option value="CBD">CBD</option>
-							<option value="Woodstock">Woodstock</option>
-							<option value="Claremont">Claremont</option>
-							<option value="Camps Bay">Camps Bay</option>
-							<option value="Osu">Osu</option>
-							<option value="East Legon">East Legon</option>
-							<option value="Airport Residential">Airport Residential</option>
-							<option value="Labadi">Labadi</option>
-							<option value="Tema (nearby)">Tema (nearby)</option>
-							<option value="Maarif">Maarif</option>
-							<option value="Ain Diab">Ain Diab</option>
-							<option value="Sidi Maârouf">Sidi Maârouf</option>
-							<option value="Bourgogne">Bourgogne</option>
-							<option value="Hay Hassani">Hay Hassani</option>
-							<option value="Agdal">Agdal</option>
-							<option value="Hay Riad">Hay Riad</option>
-							<option value="Souissi">Souissi</option>
-							<option value="Hassan">Hassan</option>
-							<option value="Yacoub El Mansour">Yacoub El Mansour</option>
-							<option value="La Marsa">La Marsa</option>
-							<option value="Carthage">Carthage</option>
-							<option value="Le Bardo">Le Bardo</option>
-							<option value="El Menzah">El Menzah</option>
-							<option value="Centre Ville">Centre Ville</option>
-							<option value="Kinondoni">Kinondoni</option>
-							<option value="Ilala">Ilala</option>
-							<option value="Temeke">Temeke</option>
-							<option value="Msasani">Msasani</option>
-							<option value="Mikocheni">Mikocheni</option>
-							<option value="Nyarugenge">Nyarugenge</option>
-							<option value="Kacyiru">Kacyiru</option>
-							<option value="Kimironko">Kimironko</option>
-							<option value="Remera">Remera</option>
-							<option value="Gikondo">Gikondo</option>
-							<option value="Plateau">Plateau</option>
-							<option value="Almadies">Almadies</option>
-							<option value="Yoff">Yoff</option>
-							<option value="Parcelles Assainies">Parcelles Assainies</option>
-							<option value="Ouakam">Ouakam</option>
-							<option value="Bole">Bole</option>
-							<option value="Piazza">Piazza</option>
-							<option value="Kazanchis">Kazanchis</option>
-							<option value="Merkato">Merkato</option>
-							<option value="Sar Bet">Sar Bet</option>
-							<option value="Hydra">Hydra</option>
-							<option value="Bab El Oued">Bab El Oued</option>
-							<option value="El Madania">El Madania</option>
-							<option value="Kouba">Kouba</option>
-							<option value="Bir Mourad Raïs">Bir Mourad Raïs</option>
-							<option value="Gargaresh">Gargaresh</option>
-							<option value="Fashloum">Fashloum</option>
-							<option value="Suk Al Juma">Suk Al Juma</option>
-							<option value="Tajoura">Tajoura</option>
-							<option value="Ain Zara">Ain Zara</option>
-						</select>
 					</div>
-
-					<div class="afl-mt-section">
-						<div class="afl-mt-label">Within</div>
-						<select id="aflWithin" class="afl-mt-field">
-							<option value="">Any distance</option>
-							<option value="10">10 kms</option>
-							<option value="25">25 kms</option>
-							<option value="50">50 kms</option>
-							<option value="100">100 kms</option>
-							<option value="250">250 kms</option>
-							<option value="500">500 kms</option>
-						</select>
-					</div>
--->
 				</div>
 
-				<!-- ADVANCED -->
 				<div data-afl-tabpanel="advanced" style="display:none">
 					<div class="afl-mt-section">
 						<div class="afl-mt-grid2">
@@ -2021,7 +1900,7 @@ final class AFL_Meet_Singles_Header_UI {
 					</div>
 
 					<p style="padding:0 2px 10px;font-size:12px;opacity:.7;margin:0">
-						UI is ready. Your listing query just needs to read the URL params (seek, ageMin, ageMax, country, city, area, within, verified, with_photo).
+						This toolbar updates the URL only. Member rendering is handled by [afro_member_grid].
 					</p>
 				</div>
 			</div>
