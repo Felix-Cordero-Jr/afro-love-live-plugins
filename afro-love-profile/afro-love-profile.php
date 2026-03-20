@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Afro Love Life - Profile Builder + [afro_member_grid]
  * Description: Front-end profile creation, member browsing, server-side match filtering, and profile viewing for Afro Love Life dating site.
- * Version: 1.3.1
+ * Version: 1.3.2
  * Author: Felix Frederick G. Cordero Jr.
  */
 
@@ -40,7 +40,7 @@ function all_profile_builder_assets() {
 		'all-profile-builder',
 		plugins_url( 'profile-builder.css', __FILE__ ),
 		[],
-		'1.0'
+		'1.3.2'
 	);
 }
 add_action( 'init', 'all_profile_builder_assets' );
@@ -953,13 +953,78 @@ function afl_norm_text( $value ) {
  * @return bool
  */
 function afl_member_has_photo( $user_id ) {
-	return (int) get_user_meta( $user_id, 'all_profile_photo', true ) > 0;
+	$photo_id = (int) get_user_meta( $user_id, 'all_profile_photo', true );
+
+	if ( $photo_id <= 0 ) {
+		return false;
+	}
+
+	$url = wp_get_attachment_image_url( $photo_id, 'medium' );
+	return ! empty( $url );
+}
+
+/**
+ * Return a safe member profile photo URL.
+ *
+ * @param int    $user_id User ID.
+ * @param string $size    Image size.
+ * @return string
+ */
+function afl_member_profile_photo_url( $user_id, $size = 'medium' ) {
+	$photo_id = (int) get_user_meta( $user_id, 'all_profile_photo', true );
+
+	if ( $photo_id > 0 ) {
+		$url = wp_get_attachment_image_url( $photo_id, $size );
+
+		if ( $url ) {
+			return $url;
+		}
+	}
+
+	$avatar_url = get_avatar_url(
+		$user_id,
+		[
+			'size' => ( 'thumbnail' === $size ) ? 150 : 400,
+		]
+	);
+
+	return $avatar_url ? $avatar_url : 'https://www.gravatar.com/avatar/?s=200&d=mp';
+}
+
+/**
+ * Return gallery lightbox URLs.
+ *
+ * @param int $user_id User ID.
+ * @return array
+ */
+function afl_member_lightbox_urls( $user_id ) {
+	$urls     = [];
+	$photo_id = (int) get_user_meta( $user_id, 'all_profile_photo', true );
+
+	if ( $photo_id > 0 ) {
+		$full = wp_get_attachment_image_url( $photo_id, 'full' );
+		if ( $full ) {
+			$urls[] = $full;
+		}
+	}
+
+	$gallery_ids = get_user_meta( $user_id, 'all_gallery_photos', true );
+
+	if ( is_array( $gallery_ids ) ) {
+		foreach ( $gallery_ids as $gid ) {
+			$gid  = (int) $gid;
+			$full = $gid ? wp_get_attachment_image_url( $gid, 'full' ) : '';
+			if ( $full ) {
+				$urls[] = $full;
+			}
+		}
+	}
+
+	return array_values( array_unique( array_filter( $urls ) ) );
 }
 
 /**
  * Check whether a member is verified.
- *
- * Adjust the meta key if your site uses a different verified field.
  *
  * @param int $user_id User ID.
  * @return bool
@@ -1000,10 +1065,6 @@ function afl_grid_shuffle_users( $users, $seed = '' ) {
 
 /**
  * Resolve sortable member first name.
- *
- * Priority:
- * - WordPress first_name user meta.
- * - First word from display_name.
  *
  * @param int $user_id User ID.
  * @return string
@@ -1196,8 +1257,8 @@ function afl_sort_filtered_members( $users, $sort = '' ) {
 					$a_gallery = get_user_meta( $a->ID, 'all_gallery_photos', true );
 					$b_gallery = get_user_meta( $b->ID, 'all_gallery_photos', true );
 
-					$a_count = (int) afl_member_has_photo( $a->ID ) + ( is_array( $a_gallery ) ? count( $a_gallery ) : 0 );
-					$b_count = (int) afl_member_has_photo( $b->ID ) + ( is_array( $b_gallery ) ? count( $b_gallery ) : 0 );
+					$a_count = count( afl_member_lightbox_urls( $a->ID ) ) + ( is_array( $a_gallery ) ? count( $a_gallery ) : 0 );
+					$b_count = count( afl_member_lightbox_urls( $b->ID ) ) + ( is_array( $b_gallery ) ? count( $b_gallery ) : 0 );
 
 					return $b_count <=> $a_count;
 				}
@@ -1286,7 +1347,7 @@ function all_member_grid_shortcode() {
 					return afl_member_matches_current_user_preferences( $current_user_id, $uid );
 				}
 
-				if ( 'mutual' === $tab ) {
+				if ( 'mutual' === $tab || 'mutual_matches' === $tab ) {
 					return afl_member_is_mutual_match( $current_user_id, $uid );
 				}
 
@@ -1350,30 +1411,10 @@ function all_member_grid_shortcode() {
 			$uid     = (int) $u->ID;
 			$is_self = ( $current_user_id === $uid );
 
-			$photo_id   = (int) get_user_meta( $uid, 'all_profile_photo', true );
-			$photo_url  = $photo_id ? wp_get_attachment_image_url( $photo_id, 'medium' ) : 'https://www.gravatar.com/avatar/?s=200&d=mp';
-			$photo_full = $photo_id ? wp_get_attachment_image_url( $photo_id, 'full' ) : '';
-
-			$gallery_ids = get_user_meta( $uid, 'all_gallery_photos', true );
-			if ( ! is_array( $gallery_ids ) ) {
-				$gallery_ids = [];
-			}
-
-			$lightbox_urls = [];
-			if ( $photo_full ) {
-				$lightbox_urls[] = $photo_full;
-			}
-
-			foreach ( $gallery_ids as $gid ) {
-				$gid  = (int) $gid;
-				$full = $gid ? wp_get_attachment_image_url( $gid, 'full' ) : '';
-				if ( $full ) {
-					$lightbox_urls[] = $full;
-				}
-			}
-
-			$lightbox_urls = array_values( array_unique( array_filter( $lightbox_urls ) ) );
-			$photo_count   = count( $lightbox_urls );
+			$photo_url  = afl_member_profile_photo_url( $uid, 'medium' );
+			$lightbox_urls = afl_member_lightbox_urls( $uid );
+			$photo_full = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
+			$photo_count = count( $lightbox_urls );
 
 			$age       = get_user_meta( $uid, 'all_age', true );
 			$city_u    = get_user_meta( $uid, 'all_city', true );
@@ -1409,7 +1450,7 @@ function all_member_grid_shortcode() {
 			$msg_url = add_query_arg( 'to', $uid, home_url( '/messages/' ) );
 
 			$lb_group = 'afl-card-' . $uid;
-			$lb_first = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : '';
+			$lb_first = $photo_full;
 			?>
 		  <div class="afl-member-card">
 			<div class="afl-member-photo">
@@ -1468,9 +1509,7 @@ function all_member_grid_shortcode() {
 				</a>
 
 				<?php
-				$popup_avatar = $photo_id
-					? wp_get_attachment_image_url( $photo_id, 'thumbnail' )
-					: 'https://www.gravatar.com/avatar/?s=96&d=mp';
+				$popup_avatar = afl_member_profile_photo_url( $uid, 'thumbnail' );
 
 				$popup_sub = trim(
 					( $age ? intval( $age ) : '' ) .
@@ -1607,9 +1646,9 @@ function all_single_member_profile_shortcode( $atts ) {
 	$partner_country = get_user_meta( $member_id, 'all_partner_country', true );
 	$partner_traits  = get_user_meta( $member_id, 'all_partner_traits', true );
 
-	$photo_id   = (int) get_user_meta( $member_id, 'all_profile_photo', true );
-	$photo_url  = $photo_id ? wp_get_attachment_image_url( $photo_id, 'large' ) : 'https://www.gravatar.com/avatar/?s=400&d=mp';
-	$photo_full = $photo_id ? wp_get_attachment_image_url( $photo_id, 'full' ) : $photo_url;
+	$photo_url  = afl_member_profile_photo_url( $member_id, 'large' );
+	$lightbox_urls = afl_member_lightbox_urls( $member_id );
+	$photo_full = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
 
 	$gallery = get_user_meta( $member_id, 'all_gallery_photos', true );
 	if ( ! is_array( $gallery ) ) {
