@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AFL Meet Singles Header UI
  * Description: Responsive Meet Singles header UI including top navigation, profile summary bar, activity/message badges, presence indicator, and match toolbar controls.
- * Version: 1.2.1
+ * Version: 1.2.5
  * Author: Felix Cordero Jr.
  */
 
@@ -12,28 +12,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Class AFL_Meet_Singles_Header_UI
- *
- * System responsibilities:
- * - Render the Meet Singles top navigation and profile summary bar.
- * - Render the match toolbar and filter modal.
- * - Provide AJAX endpoints for live counters only.
- * - Track lightweight user presence using user meta timestamps.
- *
- * Architecture note:
- * - This header plugin no longer renders member discovery results on the same page.
- * - Member rendering should be handled by [afro_member_grid].
- * - This plugin only controls filter/querystring state.
  */
 final class AFL_Meet_Singles_Header_UI {
-
-	/* ============================================================
-	 * SYSTEM CONFIGURATION
-	 * ============================================================ */
 
 	/**
 	 * Plugin asset and cache-busting version.
 	 */
-	const VERSION = '1.2.1';
+	const VERSION = '1.2.5';
 
 	/**
 	 * Public shortcode used to render the full header UI.
@@ -80,25 +65,18 @@ final class AFL_Meet_Singles_Header_UI {
 
 		add_action( 'wp_enqueue_scripts', [ __CLASS__, 'assets' ], 99 );
 
-		// Presence tracking on front-end page load.
 		add_action( 'init', [ __CLASS__, 'presence_on_page_load' ] );
 
-		// Logged-in AJAX endpoints.
 		add_action( 'wp_ajax_afl_meet_header_message_count', [ __CLASS__, 'ajax_message_count' ] );
 		add_action( 'wp_ajax_afl_meet_header_activity_counts', [ __CLASS__, 'ajax_activity_counts' ] );
 		add_action( 'wp_ajax_afl_meet_header_presence_ping', [ __CLASS__, 'ajax_presence_ping' ] );
 		add_action( 'wp_ajax_afl_meet_header_presence_status', [ __CLASS__, 'ajax_presence_status' ] );
 
-		// Non-logged-in safety endpoints.
 		add_action( 'wp_ajax_nopriv_afl_meet_header_message_count', [ __CLASS__, 'ajax_nopriv_counts' ] );
 		add_action( 'wp_ajax_nopriv_afl_meet_header_activity_counts', [ __CLASS__, 'ajax_nopriv_counts' ] );
 		add_action( 'wp_ajax_nopriv_afl_meet_header_presence_ping', [ __CLASS__, 'ajax_nopriv_counts' ] );
 		add_action( 'wp_ajax_nopriv_afl_meet_header_presence_status', [ __CLASS__, 'ajax_nopriv_counts' ] );
 	}
-
-	/* ============================================================
-	 * ROUTE HELPERS
-	 * ============================================================ */
 
 	/**
 	 * Return Meet Singles page URL.
@@ -181,10 +159,6 @@ final class AFL_Meet_Singles_Header_UI {
 		return home_url( '/activity/blocks/' );
 	}
 
-	/* ============================================================
-	 * DATA HELPERS
-	 * ============================================================ */
-
 	/**
 	 * Resolve prefixed chat table name.
 	 *
@@ -235,11 +209,6 @@ final class AFL_Meet_Singles_Header_UI {
 	/**
 	 * Return avatar URL for the given user.
 	 *
-	 * Resolution order:
-	 * - Custom profile photo from user meta.
-	 * - WordPress avatar.
-	 * - Gravatar fallback.
-	 *
 	 * @param int $user_id User ID.
 	 * @return string
 	 */
@@ -267,9 +236,6 @@ final class AFL_Meet_Singles_Header_UI {
 	/**
 	 * Determine whether the user is currently considered online.
 	 *
-	 * Online threshold:
-	 * - 60 seconds since last recorded activity.
-	 *
 	 * @param int $user_id User ID.
 	 * @return bool
 	 */
@@ -278,16 +244,8 @@ final class AFL_Meet_Singles_Header_UI {
 		return ( $last_seen && ( time() - $last_seen ) <= 60 );
 	}
 
-	/* ============================================================
-	 * FRONT-END ASSETS
-	 * ============================================================ */
-
 	/**
 	 * Register and enqueue front-end assets.
-	 *
-	 * Load conditions:
-	 * - Front-end only.
-	 * - Logged-in users only.
 	 *
 	 * @return void
 	 */
@@ -313,11 +271,6 @@ final class AFL_Meet_Singles_Header_UI {
 		);
 
 		$css = <<<'CSS'
-/* ============================================================
- * AFL MEET SINGLES HEADER UI
- * Version: 1.2.1
- * ============================================================ */
-
 :root{
   --afl-black:#000000;
   --afl-brand:#7b001a;
@@ -328,9 +281,6 @@ final class AFL_Meet_Singles_Header_UI {
   --afl-radius:14px;
 }
 
-/* ============================================================
- * TOP NAVIGATION
- * ============================================================ */
 .afl-hdr-nav-wrap{
   width:100%;
   background:var(--afl-black);
@@ -351,9 +301,7 @@ final class AFL_Meet_Singles_Header_UI {
   box-sizing:border-box;
 }
 
-.afl-hdr-left{
-  display:none;
-}
+.afl-hdr-left{display:none;}
 
 .afl-hdr-toggle{
   display:none;
@@ -369,9 +317,7 @@ final class AFL_Meet_Singles_Header_UI {
   flex:0 0 auto;
 }
 
-.afl-hdr-toggle:active{
-  transform:scale(.98);
-}
+.afl-hdr-toggle:active{transform:scale(.98);}
 
 .afl-hdr-burger{
   width:18px;
@@ -392,9 +338,9 @@ final class AFL_Meet_Singles_Header_UI {
   border-radius:2px;
 }
 
-.afl-hdr-burger:before{ top:0; }
-.afl-hdr-burger i{ top:6px; }
-.afl-hdr-burger:after{ bottom:0; }
+.afl-hdr-burger:before{top:0;}
+.afl-hdr-burger i{top:6px;}
+.afl-hdr-burger:after{bottom:0;}
 
 .afl-hdr-menu{
   list-style:none !important;
@@ -464,9 +410,6 @@ final class AFL_Meet_Singles_Header_UI {
   transform:translateY(-2px);
 }
 
-/* ============================================================
- * ACTIVITY DROPDOWN
- * ============================================================ */
 .afl-hdr-activity-menu{
   position:absolute;
   top:48px;
@@ -516,9 +459,7 @@ final class AFL_Meet_Singles_Header_UI {
   line-height:1.2 !important;
 }
 
-.afl-hdr-activity-item:hover{
-  background:#f3f4f6 !important;
-}
+.afl-hdr-activity-item:hover{background:#f3f4f6 !important;}
 
 .afl-hdr-activity-right{
   display:inline-flex;
@@ -540,9 +481,6 @@ final class AFL_Meet_Singles_Header_UI {
   text-align:center;
 }
 
-/* ============================================================
- * PROFILE BAR
- * ============================================================ */
 .afl-hdr-profile{
   background:var(--afl-brand);
   color:#fff;
@@ -596,17 +534,10 @@ final class AFL_Meet_Singles_Header_UI {
   box-shadow:0 0 0 2px rgba(255,255,255,.15);
 }
 
-.afl-hdr-dot.is-online{
-  background:#22c55e;
-}
+.afl-hdr-dot.is-online{background:#22c55e;}
 
-.afl-hdr-meta{
-  min-width:0;
-}
-
-.afl-hdr-plan{
-  margin-bottom:4px;
-}
+.afl-hdr-meta{min-width:0;}
+.afl-hdr-plan{margin-bottom:4px;}
 
 .afl-hdr-edit a{
   color:#ffd34d !important;
@@ -634,17 +565,9 @@ final class AFL_Meet_Singles_Header_UI {
   flex-wrap:wrap;
 }
 
-.afl-hdr-status{
-  font-weight:900;
-}
+.afl-hdr-status{font-weight:900;}
+.afl-hdr-sep{opacity:.8;}
 
-.afl-hdr-sep{
-  opacity:.8;
-}
-
-/* ============================================================
- * MATCH TOOLBAR
- * ============================================================ */
 .afl-mt-wrap{
   width:100%;
   max-width:none;
@@ -660,7 +583,6 @@ final class AFL_Meet_Singles_Header_UI {
   gap:10px;
   align-items:center;
   flex-wrap:wrap;
-  position:relative;
 }
 
 .afl-mt-btn{
@@ -726,15 +648,20 @@ final class AFL_Meet_Singles_Header_UI {
 }
 
 .afl-mt-panel{
-  position:absolute;
-  z-index:999999;
+  position:fixed;
+  z-index:1000000;
   background:#fff;
   border:1px solid var(--afl-border);
   border-radius:14px;
   box-shadow:0 18px 50px rgba(0,0,0,.18);
   min-width:260px;
+  max-width:min(320px, calc(100vw - 24px));
   padding:10px;
   display:none;
+}
+
+.afl-mt-panel.is-open{
+  display:block;
 }
 
 .afl-mt-panel h4{
@@ -789,6 +716,18 @@ final class AFL_Meet_Singles_Header_UI {
   flex:1;
 }
 
+.afl-mt-sort-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.20);
+  z-index:999999;
+  display:none;
+}
+
+.afl-mt-sort-backdrop.is-open{
+  display:block;
+}
+
 .afl-mt-overlay{
   position:fixed;
   inset:0;
@@ -797,9 +736,7 @@ final class AFL_Meet_Singles_Header_UI {
   display:none;
 }
 
-.afl-mt-overlay.is-open{
-  display:block;
-}
+.afl-mt-overlay.is-open{display:block;}
 
 .afl-mt-modal{
   position:fixed;
@@ -880,9 +817,7 @@ final class AFL_Meet_Singles_Header_UI {
   padding-bottom:14px;
 }
 
-.afl-mt-section{
-  margin:10px 0 14px;
-}
+.afl-mt-section{margin:10px 0 14px;}
 
 .afl-mt-label{
   font-size:13px;
@@ -967,21 +902,11 @@ final class AFL_Meet_Singles_Header_UI {
   color:#fff;
 }
 
-.afl-mt-modal-foot .afl-mt-ghost{
-  flex:1;
-}
+.afl-mt-modal-foot .afl-mt-ghost{flex:1;}
 
-/* ============================================================
- * RESPONSIVE
- * ============================================================ */
 @media (max-width:820px){
-  .afl-hdr-nav{
-    justify-content:flex-start;
-  }
-
-  .afl-hdr-toggle{
-    display:inline-flex;
-  }
+  .afl-hdr-nav{justify-content:flex-start;}
+  .afl-hdr-toggle{display:inline-flex;}
 
   .afl-hdr-menu{
     display:none !important;
@@ -1015,35 +940,26 @@ final class AFL_Meet_Singles_Header_UI {
     border-radius:14px;
   }
 
-  .afl-hdr-activity-menu:before{
-    display:none;
-  }
-
-  .afl-hdr-profile{
-    padding:12px;
-  }
-
-  .afl-hdr-avatar{
-    width:48px;
-    height:48px;
-  }
-
-  .afl-hdr-title{
-    font-size:16px;
-  }
-
-  .afl-hdr-sub{
-    font-size:12px;
-  }
+  .afl-hdr-activity-menu:before{display:none;}
+  .afl-hdr-profile{padding:12px;}
+  .afl-hdr-avatar{width:48px;height:48px;}
+  .afl-hdr-title{font-size:16px;}
+  .afl-hdr-sub{font-size:12px;}
 }
 
 @media (max-width:560px){
-  .afl-mt-grid2{
-    grid-template-columns:1fr;
-  }
+  .afl-mt-grid2{grid-template-columns:1fr;}
+  .afl-mt-modal{top:50px !important;}
+}
 
-  .afl-mt-modal{
-    top:50px !important;
+@media (max-width:767px){
+  .afl-mt-panel{
+    left:50% !important;
+    top:50% !important;
+    transform:translate(-50%, -50%);
+    width:min(320px, calc(100vw - 24px));
+    max-width:min(320px, calc(100vw - 24px));
+    min-width:unset;
   }
 }
 
@@ -1082,9 +998,6 @@ CSS;
     }
   }
 
-  /* ============================================================
-   * MOBILE NAVIGATION
-   * ============================================================ */
   function closeMobileMenu(){
     $(".afl-hdr-nav").removeClass("is-open");
     $(".afl-hdr-toggle").attr("aria-expanded","false");
@@ -1103,9 +1016,6 @@ CSS;
     }
   });
 
-  /* ============================================================
-   * ACTIVITY DROPDOWN
-   * ============================================================ */
   function closeActivity(){
     $(".afl-hdr-activity-menu").hide();
     $(".afl-hdr-activity-btn").attr("aria-expanded","false");
@@ -1136,9 +1046,6 @@ CSS;
     e.stopPropagation();
   });
 
-  /* ============================================================
-   * LIVE COUNTERS
-   * ============================================================ */
   function pollMessage(){
     $.post(aflMeetHeader.ajax, {
       action: "afl_meet_header_message_count",
@@ -1166,9 +1073,6 @@ CSS;
     });
   }
 
-  /* ============================================================
-   * PRESENCE
-   * ============================================================ */
   function pingPresence(){
     $.post(aflMeetHeader.ajax, {
       action:"afl_meet_header_presence_ping",
@@ -1188,9 +1092,6 @@ CSS;
     });
   }
 
-  /* ============================================================
-   * MATCH TOOLBAR QUERYSTRING STATE
-   * ============================================================ */
   function qsGet(){
     const out = {};
     const p = new URLSearchParams(window.location.search);
@@ -1220,7 +1121,7 @@ CSS;
   function closeOverlay(){
     $(".afl-mt-overlay").removeClass("is-open");
     $(".afl-mt-modal").removeClass("is-open");
-    $(".afl-mt-panel").hide();
+    closeSortPanel();
   }
 
   function setActivePills(){
@@ -1233,34 +1134,106 @@ CSS;
     });
   }
 
-  function positionPanel(btn, panel){
-    const r = btn.getBoundingClientRect();
-    const top = r.bottom + 8 + window.scrollY;
-    const left = Math.min(
-      (r.left + window.scrollX),
-      (window.scrollX + window.innerWidth - panel.offsetWidth - 12)
-    );
-    panel.style.top = top + "px";
+  function isMobileSortMode(){
+    return window.innerWidth <= 767;
+  }
+
+  function ensureSortBackdrop(){
+    if (!document.getElementById("aflMtSortBackdrop")) {
+      const el = document.createElement("div");
+      el.id = "aflMtSortBackdrop";
+      el.className = "afl-mt-sort-backdrop";
+      document.body.appendChild(el);
+    }
+    return $("#aflMtSortBackdrop");
+  }
+
+  function placeSortPanel(){
+    const panel = document.getElementById("aflMtSortPanel");
+    const btn   = document.querySelector(".afl-mt-open-sort");
+    if (!panel || !btn) return;
+
+    if (isMobileSortMode()) {
+      panel.style.left = "50%";
+      panel.style.top = "50%";
+      panel.style.transform = "translate(-50%, -50%)";
+      panel.style.visibility = "visible";
+      return;
+    }
+
+    const rect = btn.getBoundingClientRect();
+
+    panel.style.display = "block";
+    panel.style.visibility = "hidden";
+    panel.style.transform = "none";
+
+    const panelWidth  = panel.offsetWidth || 260;
+    const panelHeight = panel.offsetHeight || 140;
+    const gap = 8;
+
+    let left = rect.left;
+    let top  = rect.bottom + gap;
+
+    if ((left + panelWidth) > (window.innerWidth - 12)) {
+      left = window.innerWidth - panelWidth - 12;
+    }
+
+    if (left < 12) {
+      left = 12;
+    }
+
+    if ((top + panelHeight) > (window.innerHeight - 12)) {
+      top = rect.top - panelHeight - gap;
+    }
+
+    if (top < 12) {
+      top = 12;
+    }
+
     panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    panel.style.visibility = "visible";
+  }
+
+  function closeSortPanel(){
+    const $panel = $("#aflMtSortPanel");
+    $panel.removeClass("is-open").attr("aria-hidden", "true");
+    $panel.css({ display: "", visibility: "", left: "", top: "", transform: "" });
+    $(".afl-mt-open-sort").attr("aria-expanded", "false");
+    $("#aflMtSortBackdrop").removeClass("is-open");
   }
 
   $(document).on("click", ".afl-mt-open-sort", function(e){
     e.preventDefault();
     e.stopPropagation();
 
-    const panel = document.getElementById("aflMtSortPanel");
-    if(!panel) return;
+    const $panel = $("#aflMtSortPanel");
+    const isOpen = $panel.hasClass("is-open");
 
-    const isOpen = $(panel).is(":visible");
-    $(".afl-mt-panel").hide();
+    closeSortPanel();
 
-    if(isOpen){
-      $(panel).hide();
-      return;
+    if (!isOpen) {
+      ensureSortBackdrop().toggleClass("is-open", isMobileSortMode());
+      $panel.addClass("is-open").attr("aria-hidden", "false");
+      $(this).attr("aria-expanded", "true");
+      placeSortPanel();
     }
+  });
 
-    $(panel).show();
-    positionPanel(this, panel);
+  $(window).on("resize scroll", function(){
+    if ($("#aflMtSortPanel").hasClass("is-open")) {
+      ensureSortBackdrop().toggleClass("is-open", isMobileSortMode());
+      placeSortPanel();
+    }
+  });
+
+  $(document).on("click", "#aflMtSortBackdrop", function(){
+    closeSortPanel();
+  });
+
+  $(document).on("click", ".afl-mt-cancel-sort", function(e){
+    e.preventDefault();
+    closeSortPanel();
   });
 
   $(document).on("click", ".afl-mt-open-criteria", function(e){
@@ -1303,42 +1276,43 @@ CSS;
     const q = qsGet();
     q.sort = $("#aflMtSortSelect").val() || "";
     q.shuffle_seed = String(Date.now());
+    closeSortPanel();
     qsSet(q);
   });
 
   $(document).on("click", ".afl-mt-apply-criteria", function(){
-  const q = qsGet();
+    const q = qsGet();
 
-  q.seek         = $("#aflSeek").val() || "any";
-  q.ageMin       = $("#aflAgeMin").val() || "";
-  q.ageMax       = $("#aflAgeMax").val() || "";
-  q.country      = $("#aflCountry").val() || "";
-  q.city         = $("#aflCity").val() || "";
-  q.verified     = $("#aflVerified").is(":checked") ? "1" : "";
-  q.with_photo   = $("#aflWithPhoto").is(":checked") ? "1" : "";
-  q.shuffle_seed = String(Date.now());
+    q.seek         = $("#aflSeek").val() || "any";
+    q.ageMin       = $("#aflAgeMin").val() || "";
+    q.ageMax       = $("#aflAgeMax").val() || "";
+    q.country      = $("#aflCountry").val() || "";
+    q.city         = $("#aflCity").val() || "";
+    q.verified     = $("#aflVerified").is(":checked") ? "1" : "";
+    q.with_photo   = $("#aflWithPhoto").is(":checked") ? "1" : "";
+    q.shuffle_seed = String(Date.now());
 
-  delete q.tab;
+    delete q.tab;
 
-  closeOverlay();
-  qsSet(q);
-});
+    closeOverlay();
+    qsSet(q);
+  });
 
   $(document).on("click", ".afl-mt-cancel", function(){
     closeOverlay();
   });
 
-  $(document).on("click", function(){
-    $(".afl-mt-panel").hide();
+  $(document).on("click", function(e){
+    if ($(e.target).closest(".afl-mt-open-sort").length || $(e.target).closest("#aflMtSortPanel").length) {
+      return;
+    }
+    closeSortPanel();
   });
 
-  $(document).on("click", ".afl-mt-panel, .afl-mt-modal", function(e){
+  $(document).on("click", ".afl-mt-modal", function(e){
     e.stopPropagation();
   });
 
-  /* ============================================================
-   * INITIALIZATION
-   * ============================================================ */
   $(function(){
     pollMessage();
     pollActivity();
@@ -1380,10 +1354,6 @@ JS;
 		wp_enqueue_style( 'afl-meet-header-ui' );
 		wp_enqueue_script( 'afl-meet-header-ui' );
 	}
-
-	/* ============================================================
-	 * PRESENCE TRACKING
-	 * ============================================================ */
 
 	/**
 	 * Record current user activity timestamp during front-end page loads.
@@ -1436,10 +1406,6 @@ JS;
 			]
 		);
 	}
-
-	/* ============================================================
-	 * AJAX COUNTERS
-	 * ============================================================ */
 
 	/**
 	 * Safe no-priv response for counter endpoints.
@@ -1523,15 +1489,8 @@ JS;
 		wp_send_json_success( $data );
 	}
 
-	/* ============================================================
-	 * SHORTCODE RENDER
-	 * ============================================================ */
-
 	/**
 	 * Render the Meet Singles header UI.
-	 *
-	 * Shortcode:
-	 * [afl_meet_singles_header]
 	 *
 	 * @return string
 	 */
@@ -1562,7 +1521,6 @@ JS;
 		ob_start();
 		?>
 
-		<!-- TOP NAVIGATION -->
 		<div class="afl-hdr-nav-wrap">
 			<div class="afl-hdr-nav" role="navigation" aria-label="Top Navigation">
 
@@ -1617,7 +1575,6 @@ JS;
 			</div>
 		</div>
 
-		<!-- PROFILE BAR -->
 		<div class="afl-hdr-profile" data-afl-pb="1">
 			<div class="afl-hdr-profile-inner">
 				<div class="afl-hdr-profile-left">
@@ -1642,7 +1599,6 @@ JS;
 			</div>
 		</div>
 
-		<!-- MATCH TOOLBAR -->
 		<div class="afl-mt-wrap">
 			<div class="afl-mt-bar">
 
@@ -1651,7 +1607,7 @@ JS;
 					<span>Match Criteria</span>
 				</button>
 
-				<button class="afl-mt-btn afl-mt-open-sort" type="button">
+				<button class="afl-mt-btn afl-mt-open-sort" type="button" aria-expanded="false" aria-controls="aflMtSortPanel">
 					<span class="afl-mt-icon">⇅</span>
 					<span>Sort</span>
 					<small>▼</small>
@@ -1668,25 +1624,26 @@ JS;
 			</div>
 		</div>
 
-		<!-- SORT PANEL -->
+		<div id="aflMtSortBackdrop" class="afl-mt-sort-backdrop" aria-hidden="true"></div>
+
 		<div id="aflMtSortPanel" class="afl-mt-panel" aria-hidden="true">
 			<h4>Sort</h4>
 			<div class="afl-mt-row">
 				<select id="aflMtSortSelect">
 					<option value="">Relevance</option>
+					<option value="name_asc">First name A–Z</option>
+					<option value="name_desc">First name Z–A</option>
 					<option value="newest">Newest</option>
 					<option value="last_active">Last active</option>
-					<option value="distance">Distance</option>
 					<option value="photos">Most photos</option>
 				</select>
 			</div>
 			<div class="afl-mt-actions">
-				<button class="afl-mt-ghost afl-mt-cancel" type="button">Cancel</button>
+				<button class="afl-mt-ghost afl-mt-cancel-sort" type="button">Cancel</button>
 				<button class="afl-mt-primary afl-mt-apply-sort" type="button">Apply</button>
 			</div>
 		</div>
 
-		<!-- CRITERIA MODAL -->
 		<div class="afl-mt-overlay" aria-hidden="true"></div>
 		<div class="afl-mt-modal" role="dialog" aria-modal="true" aria-label="Match Criteria">
 			<div class="afl-mt-modal-head">

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Afro Love Life - Profile Builder + [afro_member_grid]
  * Description: Front-end profile creation, member browsing, server-side match filtering, and profile viewing for Afro Love Life dating site.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: Felix Frederick G. Cordero Jr.
  */
 
@@ -356,7 +356,7 @@ add_action(
     e.preventDefault();
 
     var groupKey = el.getAttribute("data-afl-group") || "default";
-    var selector = "[data-afl-lightbox][data-afl-group=\"" + groupKey + "\"]";
+    var selector = "[data-afl-lightbox][data-afl-group=\\"" + groupKey + "\\"]";
     var groupEls = qa(selector);
     var groupSrcs = groupEls
       .map(function(x){ return x.getAttribute("data-afl-lightbox"); })
@@ -999,6 +999,41 @@ function afl_grid_shuffle_users( $users, $seed = '' ) {
 }
 
 /**
+ * Resolve sortable member first name.
+ *
+ * Priority:
+ * - WordPress first_name user meta.
+ * - First word from display_name.
+ *
+ * @param int $user_id User ID.
+ * @return string
+ */
+function afl_member_sort_first_name( $user_id ) {
+	$first_name = trim( (string) get_user_meta( $user_id, 'first_name', true ) );
+
+	if ( '' !== $first_name ) {
+		return afl_norm_text( $first_name );
+	}
+
+	$user = get_user_by( 'id', $user_id );
+
+	if ( ! $user ) {
+		return '';
+	}
+
+	$display_name = trim( (string) $user->display_name );
+
+	if ( '' === $display_name ) {
+		return '';
+	}
+
+	$parts = preg_split( '/\s+/', $display_name );
+	$first = isset( $parts[0] ) ? $parts[0] : '';
+
+	return afl_norm_text( $first );
+}
+
+/**
  * Check whether a candidate passes the toolbar filters.
  *
  * @param int   $candidate_id Candidate user ID.
@@ -1101,6 +1136,48 @@ function afl_sort_filtered_members( $users, $sort = '' ) {
 	}
 
 	switch ( $sort ) {
+		case 'name_asc':
+			usort(
+				$users,
+				function ( $a, $b ) {
+					$a_name = afl_member_sort_first_name( $a->ID );
+					$b_name = afl_member_sort_first_name( $b->ID );
+
+					$cmp = strcmp( $a_name, $b_name );
+
+					if ( 0 !== $cmp ) {
+						return $cmp;
+					}
+
+					return strcmp(
+						afl_norm_text( $a->display_name ),
+						afl_norm_text( $b->display_name )
+					);
+				}
+			);
+			break;
+
+		case 'name_desc':
+			usort(
+				$users,
+				function ( $a, $b ) {
+					$a_name = afl_member_sort_first_name( $a->ID );
+					$b_name = afl_member_sort_first_name( $b->ID );
+
+					$cmp = strcmp( $b_name, $a_name );
+
+					if ( 0 !== $cmp ) {
+						return $cmp;
+					}
+
+					return strcmp(
+						afl_norm_text( $b->display_name ),
+						afl_norm_text( $a->display_name )
+					);
+				}
+			);
+			break;
+
 		case 'last_active':
 			usort(
 				$users,
@@ -1218,7 +1295,7 @@ function all_member_grid_shortcode() {
 		)
 	);
 
-	if ( in_array( $sort, [ 'newest', 'last_active', 'photos' ], true ) ) {
+	if ( in_array( $sort, [ 'name_asc', 'name_desc', 'newest', 'last_active', 'photos' ], true ) ) {
 		$users = afl_sort_filtered_members( $users, $sort );
 	} else {
 		$users = afl_grid_shuffle_users( $users, $shuffle_seed );
