@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Afro Love Life - Profile Builder + [afro_member_grid]
- * Description: Front-end profile creation, member browsing, server-side match filtering, and profile viewing for Afro Love Life dating site.
- * Version: 1.3.2
+ * Description: Front-end profile creation, member browsing, server-side match filtering, like activity tracking, and profile viewing for Afro Love Life dating site.
+ * Version: 1.4.0
  * Author: Felix Frederick G. Cordero Jr.
  */
 
@@ -40,10 +40,117 @@ function all_profile_builder_assets() {
 		'all-profile-builder',
 		plugins_url( 'profile-builder.css', __FILE__ ),
 		[],
-		'1.3.2'
+		'1.4.0'
 	);
 }
 add_action( 'init', 'all_profile_builder_assets' );
+/* ============================================================
+ * LOCATION DATA ACCESS HELPERS
+ * ============================================================ */
+
+/**
+ * Return supported locations table name.
+ *
+ * @return string
+ */
+function afl_supported_locations_table() {
+	global $wpdb;
+	return $wpdb->prefix . 'afl_supported_locations';
+}
+
+/**
+ * Return active supported countries.
+ *
+ * @return array
+ */
+function afl_get_supported_countries() {
+	global $wpdb;
+
+	$table = afl_supported_locations_table();
+
+	$rows = $wpdb->get_col(
+		"SELECT DISTINCT country_name
+		 FROM {$table}
+		 WHERE is_active = 1
+		 ORDER BY country_name ASC"
+	);
+
+	if ( ! is_array( $rows ) ) {
+		return [];
+	}
+
+	return array_values( array_filter( array_map( 'strval', $rows ) ) );
+}
+
+/**
+ * Return active supported cities for a country.
+ *
+ * @param string $country Country name.
+ * @return array
+ */
+function afl_get_supported_cities_by_country( $country ) {
+	global $wpdb;
+
+	$country = trim( (string) $country );
+
+	if ( '' === $country ) {
+		return [];
+	}
+
+	$table = afl_supported_locations_table();
+
+	$rows = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT city_name
+			 FROM {$table}
+			 WHERE is_active = 1
+			   AND country_name = %s
+			 ORDER BY city_name ASC",
+			$country
+		)
+	);
+
+	if ( ! is_array( $rows ) ) {
+		return [];
+	}
+
+	return array_values( array_filter( array_map( 'strval', $rows ) ) );
+}
+
+/**
+ * Validate that a submitted country/city pair exists in supported locations.
+ *
+ * @param string $country Country name.
+ * @param string $city    City name.
+ * @return bool
+ */
+function afl_is_supported_country_city( $country, $city ) {
+	global $wpdb;
+
+	$country = trim( (string) $country );
+	$city    = trim( (string) $city );
+
+	if ( '' === $country || '' === $city ) {
+		return false;
+	}
+
+	$table = afl_supported_locations_table();
+
+	$count = (int) $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT COUNT(*)
+			 FROM {$table}
+			 WHERE is_active = 1
+			   AND country_name = %s
+			   AND city_name = %s",
+			$country,
+			$city
+		)
+	);
+
+	return $count > 0;
+}
+
 
 /* ============================================================
  * PRESENCE TRACKING
@@ -122,6 +229,7 @@ function afl_update_last_active() {
 	}
 }
 add_action( 'init', 'afl_update_last_active' );
+
 
 /* ============================================================
  * LIGHTBOX + ACTION SCRIPTS
@@ -421,6 +529,101 @@ function afl_toggle_user_list_meta( $current_user_id, $meta_key, $target_user_id
 }
 
 /**
+ * Normalize a stored array of user IDs.
+ *
+ * @param mixed $value Meta value.
+ * @return array
+ */
+function afl_normalize_user_id_array( $value ) {
+	if ( ! is_array( $value ) ) {
+		$value = [];
+	}
+
+	$value = array_map( 'intval', $value );
+	$value = array_filter(
+		$value,
+		function ( $id ) {
+			return $id > 0;
+		}
+	);
+
+	return array_values( array_unique( $value ) );
+}
+
+/**
+ * Refresh incoming like counters for a user.
+ *
+ * @param int $user_id User ID.
+ * @return int
+ */
+function afl_refresh_received_like_count( $user_id ) {
+	$user_id = (int) $user_id;
+
+	if ( $user_id <= 0 ) {
+		return 0;
+	}
+
+	$likers = get_user_meta( $user_id, 'afl_activity_likers', true );
+	$likers = afl_normalize_user_id_array( $likers );
+
+	update_user_meta( $user_id, 'afl_activity_likers', $likers );
+	update_user_meta( $user_id, 'afl_activity_likes', count( $likers ) );
+
+	return count( $likers );
+}
+
+/**
+ * Add an incoming like record for the target user.
+ *
+ * @param int $target_user_id Target user ID.
+ * @param int $liker_user_id  Liker user ID.
+ * @return int
+ */
+function afl_add_received_like( $target_user_id, $liker_user_id ) {
+	$target_user_id = (int) $target_user_id;
+	$liker_user_id  = (int) $liker_user_id;
+
+	if ( $target_user_id <= 0 || $liker_user_id <= 0 || $target_user_id === $liker_user_id ) {
+		return 0;
+	}
+
+	$likers   = get_user_meta( $target_user_id, 'afl_activity_likers', true );
+	$likers   = afl_normalize_user_id_array( $likers );
+	$likers[] = $liker_user_id;
+	$likers   = afl_normalize_user_id_array( $likers );
+
+	update_user_meta( $target_user_id, 'afl_activity_likers', $likers );
+	update_user_meta( $target_user_id, 'afl_activity_likes', count( $likers ) );
+
+	return count( $likers );
+}
+
+/**
+ * Remove an incoming like record for the target user.
+ *
+ * @param int $target_user_id Target user ID.
+ * @param int $liker_user_id  Liker user ID.
+ * @return int
+ */
+function afl_remove_received_like( $target_user_id, $liker_user_id ) {
+	$target_user_id = (int) $target_user_id;
+	$liker_user_id  = (int) $liker_user_id;
+
+	if ( $target_user_id <= 0 || $liker_user_id <= 0 || $target_user_id === $liker_user_id ) {
+		return afl_refresh_received_like_count( $target_user_id );
+	}
+
+	$likers = get_user_meta( $target_user_id, 'afl_activity_likers', true );
+	$likers = afl_normalize_user_id_array( $likers );
+	$likers = array_values( array_diff( $likers, [ $liker_user_id ] ) );
+
+	update_user_meta( $target_user_id, 'afl_activity_likers', $likers );
+	update_user_meta( $target_user_id, 'afl_activity_likes', count( $likers ) );
+
+	return count( $likers );
+}
+
+/**
  * AJAX: Toggle like.
  *
  * @return void
@@ -440,13 +643,25 @@ add_action(
 			wp_send_json_error( [ 'msg' => 'Missing target' ], 400 );
 		}
 
-		$me     = get_current_user_id();
+		$me = get_current_user_id();
+
+		if ( $me === $target ) {
+			wp_send_json_error( [ 'msg' => 'You cannot like your own profile.' ], 400 );
+		}
+
 		$result = afl_toggle_user_list_meta( $me, 'afl_likes', $target );
+
+		if ( $result['active'] ) {
+			$received_count = afl_add_received_like( $target, $me );
+		} else {
+			$received_count = afl_remove_received_like( $target, $me );
+		}
 
 		wp_send_json_success(
 			[
-				'active' => $result['active'],
-				'count'  => count( $result['list'] ),
+				'active'         => $result['active'],
+				'count'          => count( $result['list'] ),
+				'received_count' => $received_count,
 			]
 		);
 	}
@@ -503,8 +718,31 @@ function all_profile_save_data( $user_id, $data ) {
 
 	update_user_meta( $user_id, 'all_gender', sanitize_text_field( $data['gender'] ?? '' ) );
 	update_user_meta( $user_id, 'all_age', intval( $data['age'] ?? 0 ) );
-	update_user_meta( $user_id, 'all_country', sanitize_text_field( $data['country'] ?? '' ) );
-	update_user_meta( $user_id, 'all_city', sanitize_text_field( $data['city'] ?? '' ) );
+	$country = sanitize_text_field( $data['country'] ?? '' );
+$city    = sanitize_text_field( $data['city'] ?? '' );
+
+$afl_location_map = [
+	'Benin' => ['Cotonou','Abomey-Calavi','Porto-Novo','Parakou','Djougou','Bohicon','Kandi','Ouidah','Abomey','Natitingou','Lokossa','Comè','Allada','Sèmè-Kpodji','Savè','Savalou','Dassa-Zoumé','Nikki','Malanville','Tanguiéta','Glazoue'],
+	'Togo' => ['Lomé','Sokodé','Kara','Atakpamé','Kpalimé','Tsévié','Dapaong','Aného','Bassar','Mango','Notsé','Kandé','Vogan','Tabligbo','Bafilo','Sotouboua','Blitta','Pagouda','Cinkassé','Badou'],
+	'Niger' => ['Niamey','Maradi','Zinder','Tahoua','Agadez','Dosso','Diffa','Tillabéri','Arlit','Gaya','Tessaoua','Magaria','Dakoro',"Birni N'Konni",'Madarounfa','Filingué','Balleyara','Say','Téra','Nguigmi'],
+	'Burkina Faso' => ['Ouagadougou','Bobo-Dioulasso','Koudougou','Ouahigouya','Banfora','Kaya','Tenkodogo',"Fada N'gourma",'Dédougou','Gaoua','Ziniaré','Kombissiri','Pô','Houndé','Boromo','Réo','Kongoussi','Zorgho','Tougan','Dori'],
+	'Senegal' => ['Dakar','Pikine','Touba','Thiès','Rufisque','Kaolack','Ziguinchor','Saint-Louis','Mbour','Diourbel','Kolda','Tambacounda','Louga','Matam','Sédhiou','Kaffrine','Kédougou','Richard-Toll','Podor','Dagana'],
+	'Mali' => ['Bamako','Sikasso','Mopti','Ségou','Koutiala','Kayes','Gao','Tombouctou','Kati','San','Kita','Bougouni','Niono','Markala','Kolokani','Banamba','Nara','Douentza','Bandiagara','Diré'],
+	'Cameroon' => ['Douala','Yaoundé','Garoua','Bamenda','Maroua','Bafoussam','Ngaoundéré','Bertoua','Kumba','Nkongsamba','Limbe','Buea','Kribi','Edéa','Ebolowa','Foumban','Dschang','Kumbo','Yagoua','Guider'],
+	'Cote D’ivoire' => ['Abidjan','Bouaké','Daloa','Yamoussoukro','San-Pédro','Korhogo','Man','Gagnoa','Divo','Abengourou','Agboville','Grand-Bassam','Bondoukou','Odienné','Séguéla','Soubré','Sassandra','Ferkessédougou','Katiola','Dimbokro'],
+	'Nigeria' => ['Lagos','Kano','Ibadan','Abuja','Port Harcourt','Benin City','Maiduguri','Zaria','Aba','Jos','Ilorin','Oyo','Enugu','Abeokuta','Kaduna','Warri','Calabar','Uyo','Owerri','Onitsha'],
+];
+
+if (
+	isset( $afl_location_map[ $country ] ) &&
+	in_array( $city, $afl_location_map[ $country ], true )
+) {
+	update_user_meta( $user_id, 'all_country', $country );
+	update_user_meta( $user_id, 'all_city', $city );
+} else {
+	update_user_meta( $user_id, 'all_country', '' );
+	update_user_meta( $user_id, 'all_city', '' );
+}
 	update_user_meta( $user_id, 'all_education', sanitize_text_field( $data['education'] ?? '' ) );
 	update_user_meta( $user_id, 'all_occupation', sanitize_text_field( $data['occupation'] ?? '' ) );
 
@@ -526,6 +764,7 @@ function all_profile_save_data( $user_id, $data ) {
 
 	update_user_meta( $user_id, 'all_partner_age_min', intval( $data['partner_age_min'] ?? 0 ) );
 	update_user_meta( $user_id, 'all_partner_age_max', intval( $data['partner_age_max'] ?? 0 ) );
+	update_user_meta( $user_id, 'all_partner_gender', sanitize_text_field( $data['partner_gender'] ?? '' ) );
 	update_user_meta( $user_id, 'all_partner_country', sanitize_text_field( $data['partner_country'] ?? '' ) );
 	update_user_meta( $user_id, 'all_partner_traits', wp_kses_post( $data['partner_traits'] ?? '' ) );
 
@@ -672,6 +911,7 @@ function all_profile_builder_shortcode() {
 
 	$partner_age_min = get_user_meta( $user_id, 'all_partner_age_min', true );
 	$partner_age_max = get_user_meta( $user_id, 'all_partner_age_max', true );
+	$partner_gender  = get_user_meta( $user_id, 'all_partner_gender', true );
 	$partner_country = get_user_meta( $user_id, 'all_partner_country', true );
 	$partner_traits  = get_user_meta( $user_id, 'all_partner_traits', true );
 
@@ -690,6 +930,20 @@ function all_profile_builder_shortcode() {
 	$favorite_music  = get_user_meta( $user_id, 'all_favorite_music', true );
 	$favorite_food   = get_user_meta( $user_id, 'all_favorite_food', true );
 	$favorite_movie  = get_user_meta( $user_id, 'all_favorite_movie', true );
+	
+	$supported_countries = [
+	'Benin',
+	'Togo',
+	'Niger',
+	'Burkina Faso',
+	'Senegal',
+	'Mali',
+	'Cameroon',
+	'Cote D’ivoire',
+	'Nigeria',
+];
+
+$supported_cities = [];
 
 	if ( isset( $_POST['all_profile_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['all_profile_nonce'] ) ), 'all_save_profile' ) ) {
 		all_profile_save_data( $user_id, $_POST );
@@ -701,211 +955,730 @@ function all_profile_builder_shortcode() {
 	$photo_url = $photo_id ? wp_get_attachment_image_url( $photo_id, 'medium' ) : 'https://www.gravatar.com/avatar/?s=200&d=mp';
 	$photo_big = $photo_id ? wp_get_attachment_image_url( $photo_id, 'full' ) : $photo_url;
 
+   
+	$afl_location_map = [
+	'Benin' => ['Cotonou','Abomey-Calavi','Porto-Novo','Parakou','Djougou','Bohicon','Kandi','Ouidah','Abomey','Natitingou','Lokossa','Comè','Allada','Sèmè-Kpodji','Savè','Savalou','Dassa-Zoumé','Nikki','Malanville','Tanguiéta','Glazoue'],
+	'Togo' => ['Lomé','Sokodé','Kara','Atakpamé','Kpalimé','Tsévié','Dapaong','Aného','Bassar','Mango','Notsé','Kandé','Vogan','Tabligbo','Bafilo','Sotouboua','Blitta','Pagouda','Cinkassé','Badou'],
+	'Niger' => ['Niamey','Maradi','Zinder','Tahoua','Agadez','Dosso','Diffa','Tillabéri','Arlit','Gaya','Tessaoua','Magaria','Dakoro',"Birni N'Konni",'Madarounfa','Filingué','Balleyara','Say','Téra','Nguigmi'],
+	'Burkina Faso' => ['Ouagadougou','Bobo-Dioulasso','Koudougou','Ouahigouya','Banfora','Kaya','Tenkodogo',"Fada N'gourma",'Dédougou','Gaoua','Ziniaré','Kombissiri','Pô','Houndé','Boromo','Réo','Kongoussi','Zorgho','Tougan','Dori'],
+	'Senegal' => ['Dakar','Pikine','Touba','Thiès','Rufisque','Kaolack','Ziguinchor','Saint-Louis','Mbour','Diourbel','Kolda','Tambacounda','Louga','Matam','Sédhiou','Kaffrine','Kédougou','Richard-Toll','Podor','Dagana'],
+	'Mali' => ['Bamako','Sikasso','Mopti','Ségou','Koutiala','Kayes','Gao','Tombouctou','Kati','San','Kita','Bougouni','Niono','Markala','Kolokani','Banamba','Nara','Douentza','Bandiagara','Diré'],
+	'Cameroon' => ['Douala','Yaoundé','Garoua','Bamenda','Maroua','Bafoussam','Ngaoundéré','Bertoua','Kumba','Nkongsamba','Limbe','Buea','Kribi','Edéa','Ebolowa','Foumban','Dschang','Kumbo','Yagoua','Guider'],
+	'Cote D’ivoire' => ['Abidjan','Bouaké','Daloa','Yamoussoukro','San-Pédro','Korhogo','Man','Gagnoa','Divo','Abengourou','Agboville','Grand-Bassam','Bondoukou','Odienné','Séguéla','Soubré','Sassandra','Ferkessédougou','Katiola','Dimbokro'],
+	'Nigeria' => ['Lagos','Kano','Ibadan','Abuja','Port Harcourt','Benin City','Maiduguri','Zaria','Aba','Jos','Ilorin','Oyo','Enugu','Abeokuta','Kaduna','Warri','Calabar','Uyo','Owerri','Onitsha'],
+];
+
+if ( isset( $afl_location_map[ $country ] ) ) {
+	$supported_cities = $afl_location_map[ $country ];
+}
+
 	ob_start();
 	?>
 	<div class="all-profile-wrapper">
 
-		<form id="allProfileForm" class="all-profile-form" method="post" enctype="multipart/form-data">
-			<?php wp_nonce_field( 'all_save_profile', 'all_profile_nonce' ); ?>
+	<form id="allProfileForm" class="all-profile-form" method="post" enctype="multipart/form-data">
+		<?php wp_nonce_field( 'all_save_profile', 'all_profile_nonce' ); ?>
 
-			<div class="all-profile-header">
+		<div class="all-profile-header">
+			<div class="all-profile-photo">
+				<div class="all-photo-preview">
+					<a href="#" class="afl-lb-open"
+					   data-afl-group="afl-profile-<?php echo (int) $user_id; ?>"
+					   data-afl-lightbox="<?php echo esc_url( $photo_big ); ?>">
+						<img src="<?php echo esc_url( $photo_url ); ?>" class="all-photo-img" alt="Profile Photo">
+					</a>
+				</div>
 
-				<div class="all-profile-photo">
-					<div class="all-photo-preview">
+				<button type="button" class="all-photo-upload-btn">Upload Photo</button>
+				<input type="file" name="profile_photo" id="all-photo-input" accept="image/*" style="display:none;">
+			</div>
+
+			<div class="all-profile-main">
+				<h1><?php echo esc_html( wp_get_current_user()->display_name ); ?></h1>
+
+				<p class="all-profile-headline"></p>
+				<p>Add a short line that grabs attention. Max 25 characters.</p>
+				<input
+					type="text"
+					name="headline"
+					placeholder="Add a short line that grabs attention. Max 25 characters."
+					value="<?php echo esc_attr( $headline ); ?>"
+				>
+			</div>
+		</div>
+
+		<div class="all-gallery-container" id="photos">
+			<p>Bronze members can upload 1 main profile photo, Silver members up to 4 photos, and Gold members up to 7 photos. Upload JPG or PNG images only, with a maximum file size of 1 MB per image. Upgrade here.</p>
+			<label class="all-gallery-title">Additional Photos (up to 4)</label>
+
+			<div class="all-gallery-list">
+				<?php
+				$gallery = get_user_meta( $user_id, 'all_gallery_photos', true );
+				if ( ! is_array( $gallery ) ) {
+					$gallery = [];
+				}
+
+				foreach ( $gallery as $g_photo_id ) :
+					$thumb = wp_get_attachment_image_url( $g_photo_id, 'thumbnail' );
+					$full  = wp_get_attachment_image_url( $g_photo_id, 'full' );
+					?>
+					<div class="all-gallery-thumb" style="text-align:center;">
 						<a href="#" class="afl-lb-open"
 						   data-afl-group="afl-profile-<?php echo (int) $user_id; ?>"
-						   data-afl-lightbox="<?php echo esc_url( $photo_big ); ?>">
-							<img src="<?php echo esc_url( $photo_url ); ?>" class="all-photo-img" alt="Profile Photo">
+						   data-afl-lightbox="<?php echo esc_url( $full ? $full : $thumb ); ?>">
+							<?php echo wp_get_attachment_image( $g_photo_id, 'thumbnail' ); ?>
 						</a>
-					</div>
 
-					<button type="button" class="all-photo-upload-btn">Upload Photo</button>
-					<input type="file" name="profile_photo" id="all-photo-input" accept="image/*" style="display:none;">
+						<label style="display:block; margin-top:6px; font-size:12px;">
+							<input type="checkbox" name="remove_gallery[]" value="<?php echo esc_attr( $g_photo_id ); ?>">
+							Remove
+						</label>
+					</div>
+				<?php endforeach; ?>
+
+				<?php if ( count( $gallery ) < 4 ) : ?>
+					<div class="all-gallery-upload">
+						<input type="file" name="gallery_photos[]" multiple accept="image/*">
+						<span class="all-upload-text">+ Add Photos</span>
+					</div>
+				<?php endif; ?>
+			</div>
+		</div>
+
+		<section class="all-section">
+			<h2>Member Overview</h2>
+
+			<label>About Me</label>
+			<textarea name="overview" rows="4" required><?php echo esc_textarea( $overview ); ?></textarea>
+
+			<label>Describe the kind of partner and relationship you hope to find. Max 150 words.</label>
+			<textarea name="seeking_desc" rows="4" required><?php echo esc_textarea( $seeking_desc ); ?></textarea>
+		</section>
+
+		<section class="all-section">
+			<h2>More About Me &amp; Who I'm Looking For</h2>
+
+			<div class="all-grid-2">
+				<div>
+					<h3>My Basic Info</h3>
+
+					<label>Gender</label>
+					<select name="gender" required>
+						<option value="">Select</option>
+						<option value="Male" <?php selected( $gender, 'Male' ); ?>>Male</option>
+						<option value="Female" <?php selected( $gender, 'Female' ); ?>>Female</option>
+						<option value="Other" <?php selected( $gender, 'Other' ); ?>>Other</option>
+					</select>
+
+					<label>Age</label>
+					<input type="number" name="age" min="18" max="90" value="<?php echo esc_attr( $age ); ?>" required>
+
+					<!--
+					<label>Country</label>
+					<input type="text" name="country" value="<?php echo esc_attr( $country ); ?>">
+
+					<label>City / Region</label>
+					<input type="text" name="city" value="<?php echo esc_attr( $city ); ?>">
+					-->
+
+					<label>Country</label>
+					<select name="country" id="afl-profile-country" required>
+						<option value="">Select country</option>
+						<option value="Benin" <?php selected( $country, 'Benin' ); ?>>Benin</option>
+						<option value="Togo" <?php selected( $country, 'Togo' ); ?>>Togo</option>
+						<option value="Niger" <?php selected( $country, 'Niger' ); ?>>Niger</option>
+						<option value="Burkina Faso" <?php selected( $country, 'Burkina Faso' ); ?>>Burkina Faso</option>
+						<option value="Senegal" <?php selected( $country, 'Senegal' ); ?>>Senegal</option>
+						<option value="Mali" <?php selected( $country, 'Mali' ); ?>>Mali</option>
+						<option value="Cameroon" <?php selected( $country, 'Cameroon' ); ?>>Cameroon</option>
+						<option value="Cote D’ivoire" <?php selected( $country, 'Cote D’ivoire' ); ?>>Cote D’ivoire</option>
+						<option value="Nigeria" <?php selected( $country, 'Nigeria' ); ?>>Nigeria</option>
+					</select>
+
+					<label>City / Region</label>
+					<select name="city" id="afl-profile-city" required>
+						<option value="">Select city</option>
+
+						<?php if ( 'Benin' === $country ) : ?>
+							<option value="Cotonou" <?php selected( $city, 'Cotonou' ); ?>>Cotonou</option>
+							<option value="Abomey-Calavi" <?php selected( $city, 'Abomey-Calavi' ); ?>>Abomey-Calavi</option>
+							<option value="Porto-Novo" <?php selected( $city, 'Porto-Novo' ); ?>>Porto-Novo</option>
+							<option value="Parakou" <?php selected( $city, 'Parakou' ); ?>>Parakou</option>
+							<option value="Djougou" <?php selected( $city, 'Djougou' ); ?>>Djougou</option>
+							<option value="Bohicon" <?php selected( $city, 'Bohicon' ); ?>>Bohicon</option>
+							<option value="Kandi" <?php selected( $city, 'Kandi' ); ?>>Kandi</option>
+							<option value="Ouidah" <?php selected( $city, 'Ouidah' ); ?>>Ouidah</option>
+							<option value="Abomey" <?php selected( $city, 'Abomey' ); ?>>Abomey</option>
+							<option value="Natitingou" <?php selected( $city, 'Natitingou' ); ?>>Natitingou</option>
+							<option value="Lokossa" <?php selected( $city, 'Lokossa' ); ?>>Lokossa</option>
+							<option value="Comè" <?php selected( $city, 'Comè' ); ?>>Comè</option>
+							<option value="Allada" <?php selected( $city, 'Allada' ); ?>>Allada</option>
+							<option value="Sèmè-Kpodji" <?php selected( $city, 'Sèmè-Kpodji' ); ?>>Sèmè-Kpodji</option>
+							<option value="Savè" <?php selected( $city, 'Savè' ); ?>>Savè</option>
+							<option value="Savalou" <?php selected( $city, 'Savalou' ); ?>>Savalou</option>
+							<option value="Dassa-Zoumé" <?php selected( $city, 'Dassa-Zoumé' ); ?>>Dassa-Zoumé</option>
+							<option value="Nikki" <?php selected( $city, 'Nikki' ); ?>>Nikki</option>
+							<option value="Malanville" <?php selected( $city, 'Malanville' ); ?>>Malanville</option>
+							<option value="Tanguiéta" <?php selected( $city, 'Tanguiéta' ); ?>>Tanguiéta</option>
+							<option value="Glazoue" <?php selected( $city, 'Glazoue' ); ?>>Glazoue</option>
+
+						<?php elseif ( 'Togo' === $country ) : ?>
+							<option value="Lomé" <?php selected( $city, 'Lomé' ); ?>>Lomé</option>
+							<option value="Sokodé" <?php selected( $city, 'Sokodé' ); ?>>Sokodé</option>
+							<option value="Kara" <?php selected( $city, 'Kara' ); ?>>Kara</option>
+							<option value="Atakpamé" <?php selected( $city, 'Atakpamé' ); ?>>Atakpamé</option>
+							<option value="Kpalimé" <?php selected( $city, 'Kpalimé' ); ?>>Kpalimé</option>
+							<option value="Tsévié" <?php selected( $city, 'Tsévié' ); ?>>Tsévié</option>
+							<option value="Dapaong" <?php selected( $city, 'Dapaong' ); ?>>Dapaong</option>
+							<option value="Aného" <?php selected( $city, 'Aného' ); ?>>Aného</option>
+							<option value="Bassar" <?php selected( $city, 'Bassar' ); ?>>Bassar</option>
+							<option value="Mango" <?php selected( $city, 'Mango' ); ?>>Mango</option>
+							<option value="Notsé" <?php selected( $city, 'Notsé' ); ?>>Notsé</option>
+							<option value="Kandé" <?php selected( $city, 'Kandé' ); ?>>Kandé</option>
+							<option value="Vogan" <?php selected( $city, 'Vogan' ); ?>>Vogan</option>
+							<option value="Tabligbo" <?php selected( $city, 'Tabligbo' ); ?>>Tabligbo</option>
+							<option value="Bafilo" <?php selected( $city, 'Bafilo' ); ?>>Bafilo</option>
+							<option value="Sotouboua" <?php selected( $city, 'Sotouboua' ); ?>>Sotouboua</option>
+							<option value="Blitta" <?php selected( $city, 'Blitta' ); ?>>Blitta</option>
+							<option value="Pagouda" <?php selected( $city, 'Pagouda' ); ?>>Pagouda</option>
+							<option value="Cinkassé" <?php selected( $city, 'Cinkassé' ); ?>>Cinkassé</option>
+							<option value="Badou" <?php selected( $city, 'Badou' ); ?>>Badou</option>
+
+						<?php elseif ( 'Niger' === $country ) : ?>
+							<option value="Niamey" <?php selected( $city, 'Niamey' ); ?>>Niamey</option>
+							<option value="Maradi" <?php selected( $city, 'Maradi' ); ?>>Maradi</option>
+							<option value="Zinder" <?php selected( $city, 'Zinder' ); ?>>Zinder</option>
+							<option value="Tahoua" <?php selected( $city, 'Tahoua' ); ?>>Tahoua</option>
+							<option value="Agadez" <?php selected( $city, 'Agadez' ); ?>>Agadez</option>
+							<option value="Dosso" <?php selected( $city, 'Dosso' ); ?>>Dosso</option>
+							<option value="Diffa" <?php selected( $city, 'Diffa' ); ?>>Diffa</option>
+							<option value="Tillabéri" <?php selected( $city, 'Tillabéri' ); ?>>Tillabéri</option>
+							<option value="Arlit" <?php selected( $city, 'Arlit' ); ?>>Arlit</option>
+							<option value="Gaya" <?php selected( $city, 'Gaya' ); ?>>Gaya</option>
+							<option value="Tessaoua" <?php selected( $city, 'Tessaoua' ); ?>>Tessaoua</option>
+							<option value="Magaria" <?php selected( $city, 'Magaria' ); ?>>Magaria</option>
+							<option value="Dakoro" <?php selected( $city, 'Dakoro' ); ?>>Dakoro</option>
+							<option value="Birni N'Konni" <?php selected( $city, "Birni N'Konni" ); ?>>Birni N'Konni</option>
+							<option value="Madarounfa" <?php selected( $city, 'Madarounfa' ); ?>>Madarounfa</option>
+							<option value="Filingué" <?php selected( $city, 'Filingué' ); ?>>Filingué</option>
+							<option value="Balleyara" <?php selected( $city, 'Balleyara' ); ?>>Balleyara</option>
+							<option value="Say" <?php selected( $city, 'Say' ); ?>>Say</option>
+							<option value="Téra" <?php selected( $city, 'Téra' ); ?>>Téra</option>
+							<option value="Nguigmi" <?php selected( $city, 'Nguigmi' ); ?>>Nguigmi</option>
+
+						<?php elseif ( 'Burkina Faso' === $country ) : ?>
+							<option value="Ouagadougou" <?php selected( $city, 'Ouagadougou' ); ?>>Ouagadougou</option>
+							<option value="Bobo-Dioulasso" <?php selected( $city, 'Bobo-Dioulasso' ); ?>>Bobo-Dioulasso</option>
+							<option value="Koudougou" <?php selected( $city, 'Koudougou' ); ?>>Koudougou</option>
+							<option value="Ouahigouya" <?php selected( $city, 'Ouahigouya' ); ?>>Ouahigouya</option>
+							<option value="Banfora" <?php selected( $city, 'Banfora' ); ?>>Banfora</option>
+							<option value="Kaya" <?php selected( $city, 'Kaya' ); ?>>Kaya</option>
+							<option value="Tenkodogo" <?php selected( $city, 'Tenkodogo' ); ?>>Tenkodogo</option>
+							<option value="Fada N'gourma" <?php selected( $city, "Fada N'gourma" ); ?>>Fada N'gourma</option>
+							<option value="Dédougou" <?php selected( $city, 'Dédougou' ); ?>>Dédougou</option>
+							<option value="Gaoua" <?php selected( $city, 'Gaoua' ); ?>>Gaoua</option>
+							<option value="Ziniaré" <?php selected( $city, 'Ziniaré' ); ?>>Ziniaré</option>
+							<option value="Kombissiri" <?php selected( $city, 'Kombissiri' ); ?>>Kombissiri</option>
+							<option value="Pô" <?php selected( $city, 'Pô' ); ?>>Pô</option>
+							<option value="Houndé" <?php selected( $city, 'Houndé' ); ?>>Houndé</option>
+							<option value="Boromo" <?php selected( $city, 'Boromo' ); ?>>Boromo</option>
+							<option value="Réo" <?php selected( $city, 'Réo' ); ?>>Réo</option>
+							<option value="Kongoussi" <?php selected( $city, 'Kongoussi' ); ?>>Kongoussi</option>
+							<option value="Zorgho" <?php selected( $city, 'Zorgho' ); ?>>Zorgho</option>
+							<option value="Tougan" <?php selected( $city, 'Tougan' ); ?>>Tougan</option>
+							<option value="Dori" <?php selected( $city, 'Dori' ); ?>>Dori</option>
+
+						<?php elseif ( 'Senegal' === $country ) : ?>
+							<option value="Dakar" <?php selected( $city, 'Dakar' ); ?>>Dakar</option>
+							<option value="Pikine" <?php selected( $city, 'Pikine' ); ?>>Pikine</option>
+							<option value="Touba" <?php selected( $city, 'Touba' ); ?>>Touba</option>
+							<option value="Thiès" <?php selected( $city, 'Thiès' ); ?>>Thiès</option>
+							<option value="Rufisque" <?php selected( $city, 'Rufisque' ); ?>>Rufisque</option>
+							<option value="Kaolack" <?php selected( $city, 'Kaolack' ); ?>>Kaolack</option>
+							<option value="Ziguinchor" <?php selected( $city, 'Ziguinchor' ); ?>>Ziguinchor</option>
+							<option value="Saint-Louis" <?php selected( $city, 'Saint-Louis' ); ?>>Saint-Louis</option>
+							<option value="Mbour" <?php selected( $city, 'Mbour' ); ?>>Mbour</option>
+							<option value="Diourbel" <?php selected( $city, 'Diourbel' ); ?>>Diourbel</option>
+							<option value="Kolda" <?php selected( $city, 'Kolda' ); ?>>Kolda</option>
+							<option value="Tambacounda" <?php selected( $city, 'Tambacounda' ); ?>>Tambacounda</option>
+							<option value="Louga" <?php selected( $city, 'Louga' ); ?>>Louga</option>
+							<option value="Matam" <?php selected( $city, 'Matam' ); ?>>Matam</option>
+							<option value="Sédhiou" <?php selected( $city, 'Sédhiou' ); ?>>Sédhiou</option>
+							<option value="Kaffrine" <?php selected( $city, 'Kaffrine' ); ?>>Kaffrine</option>
+							<option value="Kédougou" <?php selected( $city, 'Kédougou' ); ?>>Kédougou</option>
+							<option value="Richard-Toll" <?php selected( $city, 'Richard-Toll' ); ?>>Richard-Toll</option>
+							<option value="Podor" <?php selected( $city, 'Podor' ); ?>>Podor</option>
+							<option value="Dagana" <?php selected( $city, 'Dagana' ); ?>>Dagana</option>
+
+						<?php elseif ( 'Mali' === $country ) : ?>
+							<option value="Bamako" <?php selected( $city, 'Bamako' ); ?>>Bamako</option>
+							<option value="Sikasso" <?php selected( $city, 'Sikasso' ); ?>>Sikasso</option>
+							<option value="Mopti" <?php selected( $city, 'Mopti' ); ?>>Mopti</option>
+							<option value="Ségou" <?php selected( $city, 'Ségou' ); ?>>Ségou</option>
+							<option value="Koutiala" <?php selected( $city, 'Koutiala' ); ?>>Koutiala</option>
+							<option value="Kayes" <?php selected( $city, 'Kayes' ); ?>>Kayes</option>
+							<option value="Gao" <?php selected( $city, 'Gao' ); ?>>Gao</option>
+							<option value="Tombouctou" <?php selected( $city, 'Tombouctou' ); ?>>Tombouctou</option>
+							<option value="Kati" <?php selected( $city, 'Kati' ); ?>>Kati</option>
+							<option value="San" <?php selected( $city, 'San' ); ?>>San</option>
+							<option value="Kita" <?php selected( $city, 'Kita' ); ?>>Kita</option>
+							<option value="Bougouni" <?php selected( $city, 'Bougouni' ); ?>>Bougouni</option>
+							<option value="Niono" <?php selected( $city, 'Niono' ); ?>>Niono</option>
+							<option value="Markala" <?php selected( $city, 'Markala' ); ?>>Markala</option>
+							<option value="Kolokani" <?php selected( $city, 'Kolokani' ); ?>>Kolokani</option>
+							<option value="Banamba" <?php selected( $city, 'Banamba' ); ?>>Banamba</option>
+							<option value="Nara" <?php selected( $city, 'Nara' ); ?>>Nara</option>
+							<option value="Douentza" <?php selected( $city, 'Douentza' ); ?>>Douentza</option>
+							<option value="Bandiagara" <?php selected( $city, 'Bandiagara' ); ?>>Bandiagara</option>
+							<option value="Diré" <?php selected( $city, 'Diré' ); ?>>Diré</option>
+
+						<?php elseif ( 'Cameroon' === $country ) : ?>
+							<option value="Douala" <?php selected( $city, 'Douala' ); ?>>Douala</option>
+							<option value="Yaoundé" <?php selected( $city, 'Yaoundé' ); ?>>Yaoundé</option>
+							<option value="Garoua" <?php selected( $city, 'Garoua' ); ?>>Garoua</option>
+							<option value="Bamenda" <?php selected( $city, 'Bamenda' ); ?>>Bamenda</option>
+							<option value="Maroua" <?php selected( $city, 'Maroua' ); ?>>Maroua</option>
+							<option value="Bafoussam" <?php selected( $city, 'Bafoussam' ); ?>>Bafoussam</option>
+							<option value="Ngaoundéré" <?php selected( $city, 'Ngaoundéré' ); ?>>Ngaoundéré</option>
+							<option value="Bertoua" <?php selected( $city, 'Bertoua' ); ?>>Bertoua</option>
+							<option value="Kumba" <?php selected( $city, 'Kumba' ); ?>>Kumba</option>
+							<option value="Nkongsamba" <?php selected( $city, 'Nkongsamba' ); ?>>Nkongsamba</option>
+							<option value="Limbe" <?php selected( $city, 'Limbe' ); ?>>Limbe</option>
+							<option value="Buea" <?php selected( $city, 'Buea' ); ?>>Buea</option>
+							<option value="Kribi" <?php selected( $city, 'Kribi' ); ?>>Kribi</option>
+							<option value="Edéa" <?php selected( $city, 'Edéa' ); ?>>Edéa</option>
+							<option value="Ebolowa" <?php selected( $city, 'Ebolowa' ); ?>>Ebolowa</option>
+							<option value="Foumban" <?php selected( $city, 'Foumban' ); ?>>Foumban</option>
+							<option value="Dschang" <?php selected( $city, 'Dschang' ); ?>>Dschang</option>
+							<option value="Kumbo" <?php selected( $city, 'Kumbo' ); ?>>Kumbo</option>
+							<option value="Yagoua" <?php selected( $city, 'Yagoua' ); ?>>Yagoua</option>
+							<option value="Guider" <?php selected( $city, 'Guider' ); ?>>Guider</option>
+
+						<?php elseif ( 'Cote D’ivoire' === $country ) : ?>
+							<option value="Abidjan" <?php selected( $city, 'Abidjan' ); ?>>Abidjan</option>
+							<option value="Bouaké" <?php selected( $city, 'Bouaké' ); ?>>Bouaké</option>
+							<option value="Daloa" <?php selected( $city, 'Daloa' ); ?>>Daloa</option>
+							<option value="Yamoussoukro" <?php selected( $city, 'Yamoussoukro' ); ?>>Yamoussoukro</option>
+							<option value="San-Pédro" <?php selected( $city, 'San-Pédro' ); ?>>San-Pédro</option>
+							<option value="Korhogo" <?php selected( $city, 'Korhogo' ); ?>>Korhogo</option>
+							<option value="Man" <?php selected( $city, 'Man' ); ?>>Man</option>
+							<option value="Gagnoa" <?php selected( $city, 'Gagnoa' ); ?>>Gagnoa</option>
+							<option value="Divo" <?php selected( $city, 'Divo' ); ?>>Divo</option>
+							<option value="Abengourou" <?php selected( $city, 'Abengourou' ); ?>>Abengourou</option>
+							<option value="Agboville" <?php selected( $city, 'Agboville' ); ?>>Agboville</option>
+							<option value="Grand-Bassam" <?php selected( $city, 'Grand-Bassam' ); ?>>Grand-Bassam</option>
+							<option value="Bondoukou" <?php selected( $city, 'Bondoukou' ); ?>>Bondoukou</option>
+							<option value="Odienné" <?php selected( $city, 'Odienné' ); ?>>Odienné</option>
+							<option value="Séguéla" <?php selected( $city, 'Séguéla' ); ?>>Séguéla</option>
+							<option value="Soubré" <?php selected( $city, 'Soubré' ); ?>>Soubré</option>
+							<option value="Sassandra" <?php selected( $city, 'Sassandra' ); ?>>Sassandra</option>
+							<option value="Ferkessédougou" <?php selected( $city, 'Ferkessédougou' ); ?>>Ferkessédougou</option>
+							<option value="Katiola" <?php selected( $city, 'Katiola' ); ?>>Katiola</option>
+							<option value="Dimbokro" <?php selected( $city, 'Dimbokro' ); ?>>Dimbokro</option>
+
+						<?php elseif ( 'Nigeria' === $country ) : ?>
+							<option value="Lagos" <?php selected( $city, 'Lagos' ); ?>>Lagos</option>
+							<option value="Kano" <?php selected( $city, 'Kano' ); ?>>Kano</option>
+							<option value="Ibadan" <?php selected( $city, 'Ibadan' ); ?>>Ibadan</option>
+							<option value="Abuja" <?php selected( $city, 'Abuja' ); ?>>Abuja</option>
+							<option value="Port Harcourt" <?php selected( $city, 'Port Harcourt' ); ?>>Port Harcourt</option>
+							<option value="Benin City" <?php selected( $city, 'Benin City' ); ?>>Benin City</option>
+							<option value="Maiduguri" <?php selected( $city, 'Maiduguri' ); ?>>Maiduguri</option>
+							<option value="Zaria" <?php selected( $city, 'Zaria' ); ?>>Zaria</option>
+							<option value="Aba" <?php selected( $city, 'Aba' ); ?>>Aba</option>
+							<option value="Jos" <?php selected( $city, 'Jos' ); ?>>Jos</option>
+							<option value="Ilorin" <?php selected( $city, 'Ilorin' ); ?>>Ilorin</option>
+							<option value="Oyo" <?php selected( $city, 'Oyo' ); ?>>Oyo</option>
+							<option value="Enugu" <?php selected( $city, 'Enugu' ); ?>>Enugu</option>
+							<option value="Abeokuta" <?php selected( $city, 'Abeokuta' ); ?>>Abeokuta</option>
+							<option value="Kaduna" <?php selected( $city, 'Kaduna' ); ?>>Kaduna</option>
+							<option value="Warri" <?php selected( $city, 'Warri' ); ?>>Warri</option>
+							<option value="Calabar" <?php selected( $city, 'Calabar' ); ?>>Calabar</option>
+							<option value="Uyo" <?php selected( $city, 'Uyo' ); ?>>Uyo</option>
+							<option value="Owerri" <?php selected( $city, 'Owerri' ); ?>>Owerri</option>
+							<option value="Onitsha" <?php selected( $city, 'Onitsha' ); ?>>Onitsha</option>
+						<?php endif; ?>
+					</select>
+
+					<label>Education</label>
+					<input type="text" name="education" value="<?php echo esc_attr( $education ); ?>" required>
+
+					<label>Occupation</label>
+					<input type="text" name="occupation" value="<?php echo esc_attr( $occupation ); ?>" required>
 				</div>
 
-				<div class="all-profile-main">
-					<h1><?php echo esc_html( wp_get_current_user()->display_name ); ?></h1>
+				<div>
+					<h3>I'm Looking For</h3>
 
-					<p class="all-profile-headline">
-						<input
-							type="text"
-							name="headline"
-							placeholder="Write a short headline about you"
-							value="<?php echo esc_attr( $headline ); ?>"
-						>
-					</p>
+					<label>Preferred Gender</label>
+					<select name="partner_gender">
+						<option value="">Select</option>
+						<option value="Male" <?php selected( $partner_gender, 'Male' ); ?>>Male</option>
+						<option value="Female" <?php selected( $partner_gender, 'Female' ); ?>>Female</option>
+						<option value="Other" <?php selected( $partner_gender, 'Other' ); ?>>Other</option>
+						<option value="Any" <?php selected( $partner_gender, 'Any' ); ?>>Any</option>
+					</select>
+
+					<label>Preferred Age Range</label>
+					<div class="all-flex">
+						<input type="number" name="partner_age_min" placeholder="18" min="18" max="90" value="<?php echo esc_attr( $partner_age_min ); ?>" required>
+						<input type="number" name="partner_age_max" placeholder="18" min="18" max="90" value="<?php echo esc_attr( $partner_age_max ); ?>" required>
+					</div>
+
+					<label>Preferred Country / Region</label>
+					<select name="partner_country">
+						<option value="">Select preferred country / region</option>
+
+						<optgroup label="Benin">
+							<option value="Benin - Cotonou" <?php selected( $partner_country, 'Benin - Cotonou' ); ?>>Cotonou</option>
+							<option value="Benin - Abomey-Calavi" <?php selected( $partner_country, 'Benin - Abomey-Calavi' ); ?>>Abomey-Calavi</option>
+							<option value="Benin - Porto-Novo" <?php selected( $partner_country, 'Benin - Porto-Novo' ); ?>>Porto-Novo</option>
+							<option value="Benin - Parakou" <?php selected( $partner_country, 'Benin - Parakou' ); ?>>Parakou</option>
+							<option value="Benin - Djougou" <?php selected( $partner_country, 'Benin - Djougou' ); ?>>Djougou</option>
+							<option value="Benin - Bohicon" <?php selected( $partner_country, 'Benin - Bohicon' ); ?>>Bohicon</option>
+							<option value="Benin - Kandi" <?php selected( $partner_country, 'Benin - Kandi' ); ?>>Kandi</option>
+							<option value="Benin - Ouidah" <?php selected( $partner_country, 'Benin - Ouidah' ); ?>>Ouidah</option>
+							<option value="Benin - Abomey" <?php selected( $partner_country, 'Benin - Abomey' ); ?>>Abomey</option>
+							<option value="Benin - Natitingou" <?php selected( $partner_country, 'Benin - Natitingou' ); ?>>Natitingou</option>
+							<option value="Benin - Lokossa" <?php selected( $partner_country, 'Benin - Lokossa' ); ?>>Lokossa</option>
+							<option value="Benin - Come" <?php selected( $partner_country, 'Benin - Come' ); ?>>Comè</option>
+							<option value="Benin - Allada" <?php selected( $partner_country, 'Benin - Allada' ); ?>>Allada</option>
+							<option value="Benin - Seme-Kpodji" <?php selected( $partner_country, 'Benin - Seme-Kpodji' ); ?>>Sèmè-Kpodji</option>
+							<option value="Benin - Save" <?php selected( $partner_country, 'Benin - Save' ); ?>>Savè</option>
+							<option value="Benin - Savalou" <?php selected( $partner_country, 'Benin - Savalou' ); ?>>Savalou</option>
+							<option value="Benin - Dassa-Zoume" <?php selected( $partner_country, 'Benin - Dassa-Zoume' ); ?>>Dassa-Zoumé</option>
+							<option value="Benin - Nikki" <?php selected( $partner_country, 'Benin - Nikki' ); ?>>Nikki</option>
+							<option value="Benin - Malanville" <?php selected( $partner_country, 'Benin - Malanville' ); ?>>Malanville</option>
+							<option value="Benin - Tanguieta" <?php selected( $partner_country, 'Benin - Tanguieta' ); ?>>Tanguiéta</option>
+							<option value="Benin - Glazoue" <?php selected( $partner_country, 'Benin - Glazoue' ); ?>>Glazoue</option>
+						</optgroup>
+
+						<optgroup label="Togo">
+							<option value="Togo - Lome" <?php selected( $partner_country, 'Togo - Lome' ); ?>>Lomé</option>
+							<option value="Togo - Sokode" <?php selected( $partner_country, 'Togo - Sokode' ); ?>>Sokodé</option>
+							<option value="Togo - Kara" <?php selected( $partner_country, 'Togo - Kara' ); ?>>Kara</option>
+							<option value="Togo - Atakpame" <?php selected( $partner_country, 'Togo - Atakpame' ); ?>>Atakpamé</option>
+							<option value="Togo - Kpalime" <?php selected( $partner_country, 'Togo - Kpalime' ); ?>>Kpalimé</option>
+							<option value="Togo - Tsevie" <?php selected( $partner_country, 'Togo - Tsevie' ); ?>>Tsévié</option>
+							<option value="Togo - Dapaong" <?php selected( $partner_country, 'Togo - Dapaong' ); ?>>Dapaong</option>
+							<option value="Togo - Aneho" <?php selected( $partner_country, 'Togo - Aneho' ); ?>>Aného</option>
+							<option value="Togo - Bassar" <?php selected( $partner_country, 'Togo - Bassar' ); ?>>Bassar</option>
+							<option value="Togo - Mango" <?php selected( $partner_country, 'Togo - Mango' ); ?>>Mango</option>
+							<option value="Togo - Notse" <?php selected( $partner_country, 'Togo - Notse' ); ?>>Notsé</option>
+							<option value="Togo - Kande" <?php selected( $partner_country, 'Togo - Kande' ); ?>>Kandé</option>
+							<option value="Togo - Vogan" <?php selected( $partner_country, 'Togo - Vogan' ); ?>>Vogan</option>
+							<option value="Togo - Tabligbo" <?php selected( $partner_country, 'Togo - Tabligbo' ); ?>>Tabligbo</option>
+							<option value="Togo - Bafilo" <?php selected( $partner_country, 'Togo - Bafilo' ); ?>>Bafilo</option>
+							<option value="Togo - Sotouboua" <?php selected( $partner_country, 'Togo - Sotouboua' ); ?>>Sotouboua</option>
+							<option value="Togo - Blitta" <?php selected( $partner_country, 'Togo - Blitta' ); ?>>Blitta</option>
+							<option value="Togo - Pagouda" <?php selected( $partner_country, 'Togo - Pagouda' ); ?>>Pagouda</option>
+							<option value="Togo - Cinkasse" <?php selected( $partner_country, 'Togo - Cinkasse' ); ?>>Cinkassé</option>
+							<option value="Togo - Badou" <?php selected( $partner_country, 'Togo - Badou' ); ?>>Badou</option>
+						</optgroup>
+
+						<optgroup label="Niger">
+							<option value="Niger - Niamey" <?php selected( $partner_country, 'Niger - Niamey' ); ?>>Niamey</option>
+							<option value="Niger - Maradi" <?php selected( $partner_country, 'Niger - Maradi' ); ?>>Maradi</option>
+							<option value="Niger - Zinder" <?php selected( $partner_country, 'Niger - Zinder' ); ?>>Zinder</option>
+							<option value="Niger - Tahoua" <?php selected( $partner_country, 'Niger - Tahoua' ); ?>>Tahoua</option>
+							<option value="Niger - Agadez" <?php selected( $partner_country, 'Niger - Agadez' ); ?>>Agadez</option>
+							<option value="Niger - Dosso" <?php selected( $partner_country, 'Niger - Dosso' ); ?>>Dosso</option>
+							<option value="Niger - Diffa" <?php selected( $partner_country, 'Niger - Diffa' ); ?>>Diffa</option>
+							<option value="Niger - Tillaberi" <?php selected( $partner_country, 'Niger - Tillaberi' ); ?>>Tillabéri</option>
+							<option value="Niger - Arlit" <?php selected( $partner_country, 'Niger - Arlit' ); ?>>Arlit</option>
+							<option value="Niger - Gaya" <?php selected( $partner_country, 'Niger - Gaya' ); ?>>Gaya</option>
+							<option value="Niger - Tessaoua" <?php selected( $partner_country, 'Niger - Tessaoua' ); ?>>Tessaoua</option>
+							<option value="Niger - Magaria" <?php selected( $partner_country, 'Niger - Magaria' ); ?>>Magaria</option>
+							<option value="Niger - Dakoro" <?php selected( $partner_country, 'Niger - Dakoro' ); ?>>Dakoro</option>
+							<option value="Niger - Birni N'Konni" <?php selected( $partner_country, "Niger - Birni N'Konni" ); ?>>Birni N'Konni</option>
+							<option value="Niger - Madarounfa" <?php selected( $partner_country, 'Niger - Madarounfa' ); ?>>Madarounfa</option>
+							<option value="Niger - Filingue" <?php selected( $partner_country, 'Niger - Filingue' ); ?>>Filingué</option>
+							<option value="Niger - Balleyara" <?php selected( $partner_country, 'Niger - Balleyara' ); ?>>Balleyara</option>
+							<option value="Niger - Say" <?php selected( $partner_country, 'Niger - Say' ); ?>>Say</option>
+							<option value="Niger - Tera" <?php selected( $partner_country, 'Niger - Tera' ); ?>>Téra</option>
+							<option value="Niger - Nguigmi" <?php selected( $partner_country, 'Niger - Nguigmi' ); ?>>Nguigmi</option>
+						</optgroup>
+
+						<optgroup label="Burkina Faso">
+							<option value="Burkina Faso - Ouagadougou" <?php selected( $partner_country, 'Burkina Faso - Ouagadougou' ); ?>>Ouagadougou</option>
+							<option value="Burkina Faso - Bobo-Dioulasso" <?php selected( $partner_country, 'Burkina Faso - Bobo-Dioulasso' ); ?>>Bobo-Dioulasso</option>
+							<option value="Burkina Faso - Koudougou" <?php selected( $partner_country, 'Burkina Faso - Koudougou' ); ?>>Koudougou</option>
+							<option value="Burkina Faso - Ouahigouya" <?php selected( $partner_country, 'Burkina Faso - Ouahigouya' ); ?>>Ouahigouya</option>
+							<option value="Burkina Faso - Banfora" <?php selected( $partner_country, 'Burkina Faso - Banfora' ); ?>>Banfora</option>
+							<option value="Burkina Faso - Kaya" <?php selected( $partner_country, 'Burkina Faso - Kaya' ); ?>>Kaya</option>
+							<option value="Burkina Faso - Tenkodogo" <?php selected( $partner_country, 'Burkina Faso - Tenkodogo' ); ?>>Tenkodogo</option>
+							<option value="Burkina Faso - Fada N'gourma" <?php selected( $partner_country, "Burkina Faso - Fada N'gourma" ); ?>>Fada N'gourma</option>
+							<option value="Burkina Faso - Dedougou" <?php selected( $partner_country, 'Burkina Faso - Dedougou' ); ?>>Dédougou</option>
+							<option value="Burkina Faso - Gaoua" <?php selected( $partner_country, 'Burkina Faso - Gaoua' ); ?>>Gaoua</option>
+							<option value="Burkina Faso - Zিনiare" <?php selected( $partner_country, 'Burkina Faso - Ziniaré' ); ?>>Ziniaré</option>
+							<option value="Burkina Faso - Kombissiri" <?php selected( $partner_country, 'Burkina Faso - Kombissiri' ); ?>>Kombissiri</option>
+							<option value="Burkina Faso - Po" <?php selected( $partner_country, 'Burkina Faso - Po' ); ?>>Pô</option>
+							<option value="Burkina Faso - Hounde" <?php selected( $partner_country, 'Burkina Faso - Hounde' ); ?>>Houndé</option>
+							<option value="Burkina Faso - Boromo" <?php selected( $partner_country, 'Burkina Faso - Boromo' ); ?>>Boromo</option>
+							<option value="Burkina Faso - Reo" <?php selected( $partner_country, 'Burkina Faso - Reo' ); ?>>Réo</option>
+							<option value="Burkina Faso - Kongoussi" <?php selected( $partner_country, 'Burkina Faso - Kongoussi' ); ?>>Kongoussi</option>
+							<option value="Burkina Faso - Zorgho" <?php selected( $partner_country, 'Burkina Faso - Zorgho' ); ?>>Zorgho</option>
+							<option value="Burkina Faso - Tougan" <?php selected( $partner_country, 'Burkina Faso - Tougan' ); ?>>Tougan</option>
+							<option value="Burkina Faso - Dori" <?php selected( $partner_country, 'Burkina Faso - Dori' ); ?>>Dori</option>
+						</optgroup>
+
+						<optgroup label="Senegal">
+							<option value="Senegal - Dakar" <?php selected( $partner_country, 'Senegal - Dakar' ); ?>>Dakar</option>
+							<option value="Senegal - Pikine" <?php selected( $partner_country, 'Senegal - Pikine' ); ?>>Pikine</option>
+							<option value="Senegal - Touba" <?php selected( $partner_country, 'Senegal - Touba' ); ?>>Touba</option>
+							<option value="Senegal - Thies" <?php selected( $partner_country, 'Senegal - Thies' ); ?>>Thiès</option>
+							<option value="Senegal - Rufisque" <?php selected( $partner_country, 'Senegal - Rufisque' ); ?>>Rufisque</option>
+							<option value="Senegal - Kaolack" <?php selected( $partner_country, 'Senegal - Kaolack' ); ?>>Kaolack</option>
+							<option value="Senegal - Ziguinchor" <?php selected( $partner_country, 'Senegal - Ziguinchor' ); ?>>Ziguinchor</option>
+							<option value="Senegal - Saint-Louis" <?php selected( $partner_country, 'Senegal - Saint-Louis' ); ?>>Saint-Louis</option>
+							<option value="Senegal - Mbour" <?php selected( $partner_country, 'Senegal - Mbour' ); ?>>Mbour</option>
+							<option value="Senegal - Diourbel" <?php selected( $partner_country, 'Senegal - Diourbel' ); ?>>Diourbel</option>
+							<option value="Senegal - Kolda" <?php selected( $partner_country, 'Senegal - Kolda' ); ?>>Kolda</option>
+							<option value="Senegal - Tambacounda" <?php selected( $partner_country, 'Senegal - Tambacounda' ); ?>>Tambacounda</option>
+							<option value="Senegal - Louga" <?php selected( $partner_country, 'Senegal - Louga' ); ?>>Louga</option>
+							<option value="Senegal - Matam" <?php selected( $partner_country, 'Senegal - Matam' ); ?>>Matam</option>
+							<option value="Senegal - Sedhiou" <?php selected( $partner_country, 'Senegal - Sedhiou' ); ?>>Sédhiou</option>
+							<option value="Senegal - Kaffrine" <?php selected( $partner_country, 'Senegal - Kaffrine' ); ?>>Kaffrine</option>
+							<option value="Senegal - Kedougou" <?php selected( $partner_country, 'Senegal - Kedougou' ); ?>>Kédougou</option>
+							<option value="Senegal - Richard-Toll" <?php selected( $partner_country, 'Senegal - Richard-Toll' ); ?>>Richard-Toll</option>
+							<option value="Senegal - Podor" <?php selected( $partner_country, 'Senegal - Podor' ); ?>>Podor</option>
+							<option value="Senegal - Dagana" <?php selected( $partner_country, 'Senegal - Dagana' ); ?>>Dagana</option>
+						</optgroup>
+
+						<optgroup label="Mali">
+							<option value="Mali - Bamako" <?php selected( $partner_country, 'Mali - Bamako' ); ?>>Bamako</option>
+							<option value="Mali - Sikasso" <?php selected( $partner_country, 'Mali - Sikasso' ); ?>>Sikasso</option>
+							<option value="Mali - Mopti" <?php selected( $partner_country, 'Mali - Mopti' ); ?>>Mopti</option>
+							<option value="Mali - Segou" <?php selected( $partner_country, 'Mali - Segou' ); ?>>Ségou</option>
+							<option value="Mali - Koutiala" <?php selected( $partner_country, 'Mali - Koutiala' ); ?>>Koutiala</option>
+							<option value="Mali - Kayes" <?php selected( $partner_country, 'Mali - Kayes' ); ?>>Kayes</option>
+							<option value="Mali - Gao" <?php selected( $partner_country, 'Mali - Gao' ); ?>>Gao</option>
+							<option value="Mali - Tombouctou" <?php selected( $partner_country, 'Mali - Tombouctou' ); ?>>Tombouctou</option>
+							<option value="Mali - Kati" <?php selected( $partner_country, 'Mali - Kati' ); ?>>Kati</option>
+							<option value="Mali - San" <?php selected( $partner_country, 'Mali - San' ); ?>>San</option>
+							<option value="Mali - Kita" <?php selected( $partner_country, 'Mali - Kita' ); ?>>Kita</option>
+							<option value="Mali - Bougouni" <?php selected( $partner_country, 'Mali - Bougouni' ); ?>>Bougouni</option>
+							<option value="Mali - Niono" <?php selected( $partner_country, 'Mali - Niono' ); ?>>Niono</option>
+							<option value="Mali - Markala" <?php selected( $partner_country, 'Mali - Markala' ); ?>>Markala</option>
+							<option value="Mali - Kolokani" <?php selected( $partner_country, 'Mali - Kolokani' ); ?>>Kolokani</option>
+							<option value="Mali - Banamba" <?php selected( $partner_country, 'Mali - Banamba' ); ?>>Banamba</option>
+							<option value="Mali - Nara" <?php selected( $partner_country, 'Mali - Nara' ); ?>>Nara</option>
+							<option value="Mali - Douentza" <?php selected( $partner_country, 'Mali - Douentza' ); ?>>Douentza</option>
+							<option value="Mali - Bandiagara" <?php selected( $partner_country, 'Mali - Bandiagara' ); ?>>Bandiagara</option>
+							<option value="Mali - Dire" <?php selected( $partner_country, 'Mali - Dire' ); ?>>Diré</option>
+						</optgroup>
+
+						<optgroup label="Cameroon">
+							<option value="Cameroon - Douala" <?php selected( $partner_country, 'Cameroon - Douala' ); ?>>Douala</option>
+							<option value="Cameroon - Yaounde" <?php selected( $partner_country, 'Cameroon - Yaounde' ); ?>>Yaoundé</option>
+							<option value="Cameroon - Garoua" <?php selected( $partner_country, 'Cameroon - Garoua' ); ?>>Garoua</option>
+							<option value="Cameroon - Bamenda" <?php selected( $partner_country, 'Cameroon - Bamenda' ); ?>>Bamenda</option>
+							<option value="Cameroon - Maroua" <?php selected( $partner_country, 'Cameroon - Maroua' ); ?>>Maroua</option>
+							<option value="Cameroon - Bafoussam" <?php selected( $partner_country, 'Cameroon - Bafoussam' ); ?>>Bafoussam</option>
+							<option value="Cameroon - Ngaoundere" <?php selected( $partner_country, 'Cameroon - Ngaoundere' ); ?>>Ngaoundéré</option>
+							<option value="Cameroon - Bertoua" <?php selected( $partner_country, 'Cameroon - Bertoua' ); ?>>Bertoua</option>
+							<option value="Cameroon - Kumba" <?php selected( $partner_country, 'Cameroon - Kumba' ); ?>>Kumba</option>
+							<option value="Cameroon - Nkongsamba" <?php selected( $partner_country, 'Cameroon - Nkongsamba' ); ?>>Nkongsamba</option>
+							<option value="Cameroon - Limbe" <?php selected( $partner_country, 'Cameroon - Limbe' ); ?>>Limbe</option>
+							<option value="Cameroon - Buea" <?php selected( $partner_country, 'Cameroon - Buea' ); ?>>Buea</option>
+							<option value="Cameroon - Kribi" <?php selected( $partner_country, 'Cameroon - Kribi' ); ?>>Kribi</option>
+							<option value="Cameroon - Edea" <?php selected( $partner_country, 'Cameroon - Edea' ); ?>>Edéa</option>
+							<option value="Cameroon - Ebolowa" <?php selected( $partner_country, 'Cameroon - Ebolowa' ); ?>>Ebolowa</option>
+							<option value="Cameroon - Foumban" <?php selected( $partner_country, 'Cameroon - Foumban' ); ?>>Foumban</option>
+							<option value="Cameroon - Dschang" <?php selected( $partner_country, 'Cameroon - Dschang' ); ?>>Dschang</option>
+							<option value="Cameroon - Kumbo" <?php selected( $partner_country, 'Cameroon - Kumbo' ); ?>>Kumbo</option>
+							<option value="Cameroon - Yagoua" <?php selected( $partner_country, 'Cameroon - Yagoua' ); ?>>Yagoua</option>
+							<option value="Cameroon - Guider" <?php selected( $partner_country, 'Cameroon - Guider' ); ?>>Guider</option>
+						</optgroup>
+
+						<optgroup label="Cote D’ivoire">
+							<option value="Cote D’ivoire - Abidjan" <?php selected( $partner_country, 'Cote D’ivoire - Abidjan' ); ?>>Abidjan</option>
+							<option value="Cote D’ivoire - Bouake" <?php selected( $partner_country, 'Cote D’ivoire - Bouake' ); ?>>Bouaké</option>
+							<option value="Cote D’ivoire - Daloa" <?php selected( $partner_country, 'Cote D’ivoire - Daloa' ); ?>>Daloa</option>
+							<option value="Cote D’ivoire - Yamoussoukro" <?php selected( $partner_country, 'Cote D’ivoire - Yamoussoukro' ); ?>>Yamoussoukro</option>
+							<option value="Cote D’ivoire - San-Pedro" <?php selected( $partner_country, 'Cote D’ivoire - San-Pedro' ); ?>>San-Pédro</option>
+							<option value="Cote D’ivoire - Korhogo" <?php selected( $partner_country, 'Cote D’ivoire - Korhogo' ); ?>>Korhogo</option>
+							<option value="Cote D’ivoire - Man" <?php selected( $partner_country, 'Cote D’ivoire - Man' ); ?>>Man</option>
+							<option value="Cote D’ivoire - Gagnoa" <?php selected( $partner_country, 'Cote D’ivoire - Gagnoa' ); ?>>Gagnoa</option>
+							<option value="Cote D’ivoire - Divo" <?php selected( $partner_country, 'Cote D’ivoire - Divo' ); ?>>Divo</option>
+							<option value="Cote D’ivoire - Abengourou" <?php selected( $partner_country, 'Cote D’ivoire - Abengourou' ); ?>>Abengourou</option>
+							<option value="Cote D’ivoire - Agboville" <?php selected( $partner_country, 'Cote D’ivoire - Agboville' ); ?>>Agboville</option>
+							<option value="Cote D’ivoire - Grand-Bassam" <?php selected( $partner_country, 'Cote D’ivoire - Grand-Bassam' ); ?>>Grand-Bassam</option>
+							<option value="Cote D’ivoire - Bondoukou" <?php selected( $partner_country, 'Cote D’ivoire - Bondoukou' ); ?>>Bondoukou</option>
+							<option value="Cote D’ivoire - Odienne" <?php selected( $partner_country, 'Cote D’ivoire - Odienne' ); ?>>Odienné</option>
+							<option value="Cote D’ivoire - Seguela" <?php selected( $partner_country, 'Cote D’ivoire - Seguela' ); ?>>Séguéla</option>
+							<option value="Cote D’ivoire - Soubre" <?php selected( $partner_country, 'Cote D’ivoire - Soubre' ); ?>>Soubré</option>
+							<option value="Cote D’ivoire - Sassandra" <?php selected( $partner_country, 'Cote D’ivoire - Sassandra' ); ?>>Sassandra</option>
+							<option value="Cote D’ivoire - Ferkessedougou" <?php selected( $partner_country, 'Cote D’ivoire - Ferkessedougou' ); ?>>Ferkessédougou</option>
+							<option value="Cote D’ivoire - Katiola" <?php selected( $partner_country, 'Cote D’ivoire - Katiola' ); ?>>Katiola</option>
+							<option value="Cote D’ivoire - Dimbokro" <?php selected( $partner_country, 'Cote D’ivoire - Dimbokro' ); ?>>Dimbokro</option>
+						</optgroup>
+
+						<optgroup label="Nigeria">
+							<option value="Nigeria - Lagos" <?php selected( $partner_country, 'Nigeria - Lagos' ); ?>>Lagos</option>
+							<option value="Nigeria - Kano" <?php selected( $partner_country, 'Nigeria - Kano' ); ?>>Kano</option>
+							<option value="Nigeria - Ibadan" <?php selected( $partner_country, 'Nigeria - Ibadan' ); ?>>Ibadan</option>
+							<option value="Nigeria - Abuja" <?php selected( $partner_country, 'Nigeria - Abuja' ); ?>>Abuja</option>
+							<option value="Nigeria - Port Harcourt" <?php selected( $partner_country, 'Nigeria - Port Harcourt' ); ?>>Port Harcourt</option>
+							<option value="Nigeria - Benin City" <?php selected( $partner_country, 'Nigeria - Benin City' ); ?>>Benin City</option>
+							<option value="Nigeria - Maiduguri" <?php selected( $partner_country, 'Nigeria - Maiduguri' ); ?>>Maiduguri</option>
+							<option value="Nigeria - Zaria" <?php selected( $partner_country, 'Nigeria - Zaria' ); ?>>Zaria</option>
+							<option value="Nigeria - Aba" <?php selected( $partner_country, 'Nigeria - Aba' ); ?>>Aba</option>
+							<option value="Nigeria - Jos" <?php selected( $partner_country, 'Nigeria - Jos' ); ?>>Jos</option>
+							<option value="Nigeria - Ilorin" <?php selected( $partner_country, 'Nigeria - Ilorin' ); ?>>Ilorin</option>
+							<option value="Nigeria - Oyo" <?php selected( $partner_country, 'Nigeria - Oyo' ); ?>>Oyo</option>
+							<option value="Nigeria - Enugu" <?php selected( $partner_country, 'Nigeria - Enugu' ); ?>>Enugu</option>
+							<option value="Nigeria - Abeokuta" <?php selected( $partner_country, 'Nigeria - Abeokuta' ); ?>>Abeokuta</option>
+							<option value="Nigeria - Kaduna" <?php selected( $partner_country, 'Nigeria - Kaduna' ); ?>>Kaduna</option>
+							<option value="Nigeria - Warri" <?php selected( $partner_country, 'Nigeria - Warri' ); ?>>Warri</option>
+							<option value="Nigeria - Calabar" <?php selected( $partner_country, 'Nigeria - Calabar' ); ?>>Calabar</option>
+							<option value="Nigeria - Uyo" <?php selected( $partner_country, 'Nigeria - Uyo' ); ?>>Uyo</option>
+							<option value="Nigeria - Owerri" <?php selected( $partner_country, 'Nigeria - Owerri' ); ?>>Owerri</option>
+							<option value="Nigeria - Onitsha" <?php selected( $partner_country, 'Nigeria - Onitsha' ); ?>>Onitsha</option>
+						</optgroup>
+					</select>
+
+					<!--
+					<label>Ideal Partner Description</label>
+					<textarea name="partner_traits" rows="4"><?php echo esc_textarea( $partner_traits ); ?></textarea>
+					-->
 				</div>
 			</div>
+		</section>
 
-			<div class="all-gallery-container" id="photos">
-				<label class="all-gallery-title">Additional Photos (up to 4)</label>
+		<section class="all-section">
+			<h2>Appearance</h2>
 
-				<div class="all-gallery-list">
-					<?php
-					$gallery = get_user_meta( $user_id, 'all_gallery_photos', true );
-					if ( ! is_array( $gallery ) ) {
-						$gallery = [];
-					}
+			<div class="all-grid-3">
+				<div>
+					<label>Height (cm)</label>
+					<input type="number" name="height" min="50" max="300" step="1" value="<?php echo esc_attr( $height ); ?>" required>
+				</div>
 
-					foreach ( $gallery as $g_photo_id ) :
-						$thumb = wp_get_attachment_image_url( $g_photo_id, 'thumbnail' );
-						$full  = wp_get_attachment_image_url( $g_photo_id, 'full' );
-						?>
-						<div class="all-gallery-thumb" style="text-align:center;">
-							<a href="#" class="afl-lb-open"
-							   data-afl-group="afl-profile-<?php echo (int) $user_id; ?>"
-							   data-afl-lightbox="<?php echo esc_url( $full ? $full : $thumb ); ?>">
-								<?php echo wp_get_attachment_image( $g_photo_id, 'thumbnail' ); ?>
-							</a>
+				<div>
+					<label>Weight (kg)</label>
+					<input type="number" name="weight" min="20" max="300" step="1" value="<?php echo esc_attr( $weight ); ?>" required>
+				</div>
 
-							<label style="display:block; margin-top:6px; font-size:12px;">
-								<input type="checkbox" name="remove_gallery[]" value="<?php echo esc_attr( $g_photo_id ); ?>">
-								Remove
-							</label>
-						</div>
-					<?php endforeach; ?>
+				<div>
+					<label>Body Type</label>
+					<input type="text" name="body_type" value="<?php echo esc_attr( $body_type ); ?>">
+				</div>
 
-					<?php if ( count( $gallery ) < 4 ) : ?>
-						<div class="all-gallery-upload">
-							<input type="file" name="gallery_photos[]" multiple accept="image/*">
-							<span class="all-upload-text">+ Add Photos</span>
-						</div>
-					<?php endif; ?>
+				<div>
+					<label>Hair Color</label>
+					<input type="text" name="hair_color" value="<?php echo esc_attr( $hair_color ); ?>">
+				</div>
+
+				<div>
+					<label>Eye Color</label>
+					<input type="text" name="eye_color" value="<?php echo esc_attr( $eye_color ); ?>">
 				</div>
 			</div>
+		</section>
 
-			<section class="all-section">
-				<h2>Member Overview</h2>
+		<section class="all-section">
+			<h2>Lifestyle</h2>
 
-				<label>About Me</label>
-				<textarea name="overview" rows="4" required><?php echo esc_textarea( $overview ); ?></textarea>
+			<div class="all-grid-2">
+				<div>
+					<label>Drink</label>
+					<input type="text" name="drink" value="<?php echo esc_attr( $drink ); ?>">
 
-				<label>What I'm Looking For</label>
-				<textarea name="seeking_desc" rows="4" required><?php echo esc_textarea( $seeking_desc ); ?></textarea>
-			</section>
-
-			<section class="all-section">
-				<h2>More About Me &amp; Who I'm Looking For</h2>
-
-				<div class="all-grid-2">
-					<div>
-						<h3>My Basic Info</h3>
-
-						<label>Gender</label>
-						<select name="gender" required>
-							<option value="">Select</option>
-							<option value="Male" <?php selected( $gender, 'Male' ); ?>>Male</option>
-							<option value="Female" <?php selected( $gender, 'Female' ); ?>>Female</option>
-							<option value="Other" <?php selected( $gender, 'Other' ); ?>>Other</option>
-						</select>
-
-						<label>Age</label>
-						<input type="number" name="age" min="18" max="90" value="<?php echo esc_attr( $age ); ?>" required>
-
-						<label>Country</label>
-						<input type="text" name="country" value="<?php echo esc_attr( $country ); ?>">
-
-						<label>City / Region</label>
-						<input type="text" name="city" value="<?php echo esc_attr( $city ); ?>">
-
-						<label>Education</label>
-						<input type="text" name="education" value="<?php echo esc_attr( $education ); ?>" required>
-
-						<label>Occupation</label>
-						<input type="text" name="occupation" value="<?php echo esc_attr( $occupation ); ?>" required>
-					</div>
-
-					<div>
-						<h3>I'm Looking For</h3>
-
-						<label>Preferred Age Range</label>
-						<div class="all-flex">
-							<input type="number" name="partner_age_min" min="18" max="90" placeholder="From" value="<?php echo esc_attr( $partner_age_min ); ?>" required>
-							<input type="number" name="partner_age_max" min="18" max="90" placeholder="To" value="<?php echo esc_attr( $partner_age_max ); ?>" required>
-						</div>
-
-						<label>Preferred Country / Region</label>
-						<input type="text" name="partner_country" value="<?php echo esc_attr( $partner_country ); ?>">
-
-						<label>Ideal Partner Description</label>
-						<textarea name="partner_traits" rows="4"><?php echo esc_textarea( $partner_traits ); ?></textarea>
-					</div>
+					<label>Smoke</label>
+					<input type="text" name="smoke" value="<?php echo esc_attr( $smoke ); ?>">
 				</div>
-			</section>
 
-			<section class="all-section">
-				<h2>Appearance</h2>
+				<div>
+					<label>Marital Status</label>
+					<input type="text" name="marital_status" value="<?php echo esc_attr( $marital_status ); ?>" required>
 
-				<div class="all-grid-2">
-					<div>
-						<label>Height</label>
-						<input type="text" name="height" value="<?php echo esc_attr( $height ); ?>" required>
-
-						<label>Weight</label>
-						<input type="text" name="weight" value="<?php echo esc_attr( $weight ); ?>" required>
-
-						<label>Body Type</label>
-						<input type="text" name="body_type" value="<?php echo esc_attr( $body_type ); ?>">
-					</div>
-
-					<div>
-						<label>Hair Color</label>
-						<input type="text" name="hair_color" value="<?php echo esc_attr( $hair_color ); ?>">
-
-						<label>Eye Color</label>
-						<input type="text" name="eye_color" value="<?php echo esc_attr( $eye_color ); ?>">
-					</div>
+					<label>Have Children?</label>
+					<input type="text" name="have_children" value="<?php echo esc_attr( $have_children ); ?>">
 				</div>
-			</section>
+			</div>
+		</section>
 
-			<section class="all-section">
-				<h2>Lifestyle</h2>
+		<section class="all-section">
+			<h2>Hobbies &amp; Interests</h2>
 
-				<div class="all-grid-2">
-					<div>
-						<label>Drink</label>
-						<input type="text" name="drink" value="<?php echo esc_attr( $drink ); ?>">
+			<!--
+			<label>Hobbies &amp; Interests</label>
+			<textarea name="hobbies" rows="3"><?php echo esc_textarea( $hobbies ); ?></textarea>
+			-->
 
-						<label>Smoke</label>
-						<input type="text" name="smoke" value="<?php echo esc_attr( $smoke ); ?>">
-					</div>
-
-					<div>
-						<label>Marital Status</label>
-						<input type="text" name="marital_status" value="<?php echo esc_attr( $marital_status ); ?>" required>
-
-						<label>Have Children?</label>
-						<input type="text" name="have_children" value="<?php echo esc_attr( $have_children ); ?>">
-					</div>
+			<div class="all-grid-3">
+				<div>
+					<label>Favorite Music</label>
+					<input type="text" name="favorite_music" value="<?php echo esc_attr( $favorite_music ); ?>">
 				</div>
-			</section>
-
-			<section class="all-section">
-				<h2>Hobbies &amp; Interests</h2>
-
-				<label>Hobbies &amp; Interests</label>
-				<textarea name="hobbies" rows="3"><?php echo esc_textarea( $hobbies ); ?></textarea>
-
-				<div class="all-grid-3">
-					<div>
-						<label>Favorite Music</label>
-						<input type="text" name="favorite_music" value="<?php echo esc_attr( $favorite_music ); ?>">
-					</div>
-					<div>
-						<label>Favorite Food</label>
-						<input type="text" name="favorite_food" value="<?php echo esc_attr( $favorite_food ); ?>">
-					</div>
-					<div>
-						<label>Favorite Movie</label>
-						<input type="text" name="favorite_movie" value="<?php echo esc_attr( $favorite_movie ); ?>">
-					</div>
+				<div>
+					<label>Favorite Food</label>
+					<input type="text" name="favorite_food" value="<?php echo esc_attr( $favorite_food ); ?>">
 				</div>
-			</section>
+				<div>
+					<label>Favorite Movie</label>
+					<input type="text" name="favorite_movie" value="<?php echo esc_attr( $favorite_movie ); ?>">
+				</div>
+			</div>
+		</section>
+	</form>
+</div>
 
 			<div class="all-submit-wrap">
 				<button type="submit" class="all-btn-primary">Save Profile &amp; Continue</button>
 			</div>
 		</form>
+		
+	<script>
+		document.addEventListener("DOMContentLoaded", function () {
+		  const uploadBtn = document.querySelector(".all-photo-upload-btn");
+		  const fileInput = document.getElementById("all-photo-input");
+		  const previewImg = document.querySelector(".all-photo-img");
+		  const countrySelect = document.getElementById("afl-profile-country");
+		  const citySelect = document.getElementById("afl-profile-city");
+		  const locationMap = <?php echo wp_json_encode( $afl_location_map ); ?>;
+		  const selectedCity = <?php echo wp_json_encode( (string) $city ); ?>;
+
+		  function rebuildCities(countryValue, keepValue) {
+			if (!citySelect) return;
+
+			const cities = Array.isArray(locationMap[countryValue]) ? locationMap[countryValue] : [];
+			citySelect.innerHTML = '<option value="">Select city</option>';
+
+			cities.forEach(function(city){
+			  const opt = document.createElement("option");
+			  opt.value = city;
+			  opt.textContent = city;
+			  if (keepValue && city === keepValue) {
+				opt.selected = true;
+			  }
+			  citySelect.appendChild(opt);
+			});
+		  }
+
+		  if (countrySelect && citySelect) {
+			rebuildCities(countrySelect.value, selectedCity);
+
+			countrySelect.addEventListener("change", function () {
+			  rebuildCities(this.value, "");
+			});
+		  }
+
+		  if (uploadBtn && fileInput && previewImg) {
+			uploadBtn.addEventListener("click", () => fileInput.click());
+			fileInput.addEventListener("change", function () {
+			  if (this.files && this.files[0]) {
+				const reader = new FileReader();
+				reader.onload = e => previewImg.src = e.target.result;
+				reader.readAsDataURL(this.files[0]);
+			  }
+			});
+		  }
+		});
+	</script>
+	
+<!--
 
 		<script>
 		document.addEventListener("DOMContentLoaded", function () {
@@ -925,8 +1698,11 @@ function all_profile_builder_shortcode() {
 		  }
 		});
 		</script>
+-->
 
 	</div>
+	
+	
 	<?php
 	return ob_get_clean();
 }
@@ -1386,12 +2162,13 @@ function all_member_grid_shortcode() {
 	  .afl-dot.is-offline{background:#9ca3af;}
 	  .afl-member-headline{font-size:11px;color:#111827;margin:0 0 10px;min-height:28px;}
 	  .afl-icon-row{display:flex;gap:10px;align-items:center;margin:8px 0 10px;}
-	  .afl-icon-btn{width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#f3f4f6;text-decoration:none;border:1px solid #e5e7eb;}
+	  .afl-icon-btn{width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#f3f4f6;text-decoration:none;border:1px solid #e5e7eb;position:relative;}
 	  .afl-icon-btn .dashicons{font-size:20px;width:20px;height:20px;line-height:20px;}
 	  .afl-icon-btn:hover{opacity:.9;}
 	  .afl-icon-btn.is-active{background:#fee2e2;border-color:#fecaca;}
 	  .afl-photo-btn{position:relative;}
-	  .afl-photo-count{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff;font-size:10px;padding:0 5px;}
+	  .afl-photo-count,.afl-like-count{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff;font-size:10px;padding:0 5px;}
+	  .afl-like-count{display:none;}
 	  .afl-member-actions{display:flex;justify-content:flex-start;gap:8px;margin-top:4px;}
 	  .afl-card-btn{padding:6px 12px;border-radius:999px;border:none;font-size:11px;cursor:pointer;background:#a00026;color:#fff;text-decoration:none;display:inline-block;}
 	  .afl-card-btn.afl-outline{background:#fff;color:#a00026;border:1px solid #a00026;}
@@ -1411,17 +2188,17 @@ function all_member_grid_shortcode() {
 			$uid     = (int) $u->ID;
 			$is_self = ( $current_user_id === $uid );
 
-			$photo_url  = afl_member_profile_photo_url( $uid, 'medium' );
+			$photo_url     = afl_member_profile_photo_url( $uid, 'medium' );
 			$lightbox_urls = afl_member_lightbox_urls( $uid );
-			$photo_full = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
-			$photo_count = count( $lightbox_urls );
+			$photo_full    = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
+			$photo_count   = count( $lightbox_urls );
 
 			$age       = get_user_meta( $uid, 'all_age', true );
 			$city_u    = get_user_meta( $uid, 'all_city', true );
 			$country_u = get_user_meta( $uid, 'all_country', true );
 			$headline  = get_user_meta( $uid, 'all_headline', true );
 
-			$seek_gender = get_user_meta( $uid, 'all_gender', true );
+			$seek_gender = get_user_meta( $uid, 'all_partner_gender', true );
 			$seek_min    = get_user_meta( $uid, 'all_partner_age_min', true );
 			$seek_max    = get_user_meta( $uid, 'all_partner_age_max', true );
 
@@ -1445,7 +2222,7 @@ function all_member_grid_shortcode() {
 			if ( ! is_array( $my_likes ) ) {
 				$my_likes = [];
 			}
-			$liked = in_array( $uid, $my_likes, true );
+			$liked = in_array( $uid, array_map( 'intval', $my_likes ), true );
 
 			$msg_url = add_query_arg( 'to', $uid, home_url( '/messages/' ) );
 
@@ -1643,12 +2420,13 @@ function all_single_member_profile_shortcode( $atts ) {
 
 	$partner_age_min = get_user_meta( $member_id, 'all_partner_age_min', true );
 	$partner_age_max = get_user_meta( $member_id, 'all_partner_age_max', true );
+	$partner_gender  = get_user_meta( $member_id, 'all_partner_gender', true );
 	$partner_country = get_user_meta( $member_id, 'all_partner_country', true );
 	$partner_traits  = get_user_meta( $member_id, 'all_partner_traits', true );
 
-	$photo_url  = afl_member_profile_photo_url( $member_id, 'large' );
+	$photo_url     = afl_member_profile_photo_url( $member_id, 'large' );
 	$lightbox_urls = afl_member_lightbox_urls( $member_id );
-	$photo_full = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
+	$photo_full    = ! empty( $lightbox_urls[0] ) ? $lightbox_urls[0] : $photo_url;
 
 	$gallery = get_user_meta( $member_id, 'all_gallery_photos', true );
 	if ( ! is_array( $gallery ) ) {
@@ -1753,17 +2531,19 @@ function all_single_member_profile_shortcode( $atts ) {
 		<div class="afl-profile-view-section">
 			<h2>More About Me &amp; Who I'm Looking For</h2>
 
-			<div class="afl-two-col">
+				<div class="afl-two-col">
 				<div><span class="afl-field-label">Gender</span><span class="afl-field-value"><?php echo esc_html( $gender ); ?></span></div>
-				<div><span class="afl-field-label">Preferred Age Range</span><span class="afl-field-value"><?php if ( $partner_age_min || $partner_age_max ) { echo esc_html( $partner_age_min ) . ' - ' . esc_html( $partner_age_max ); } ?></span></div>
+				<div><span class="afl-field-label">Preferred Gender</span><span class="afl-field-value"><?php echo esc_html( $partner_gender ); ?></span></div>
 
 				<div><span class="afl-field-label">Country</span><span class="afl-field-value"><?php echo esc_html( $country ); ?></span></div>
-				<div><span class="afl-field-label">Preferred Country / Region</span><span class="afl-field-value"><?php echo esc_html( $partner_country ); ?></span></div>
+				<div><span class="afl-field-label">Preferred Age Range</span><span class="afl-field-value"><?php if ( $partner_age_min || $partner_age_max ) { echo esc_html( $partner_age_min ) . ' - ' . esc_html( $partner_age_max ); } ?></span></div>
 
 				<div><span class="afl-field-label">City / Region</span><span class="afl-field-value"><?php echo esc_html( $city ); ?></span></div>
-				<div><span class="afl-field-label">Ideal Partner Description</span><span class="afl-field-value"><?php echo nl2br( esc_html( $partner_traits ) ); ?></span></div>
+				<div><span class="afl-field-label">Preferred Country / Region</span><span class="afl-field-value"><?php echo esc_html( $partner_country ); ?></span></div>
 
 				<div><span class="afl-field-label">Education</span><span class="afl-field-value"><?php echo esc_html( $education ); ?></span></div>
+				<div><span class="afl-field-label">Ideal Partner Description</span><span class="afl-field-value"><?php echo nl2br( esc_html( $partner_traits ) ); ?></span></div>
+
 				<div><span class="afl-field-label">Occupation</span><span class="afl-field-value"><?php echo esc_html( $occupation ); ?></span></div>
 			</div>
 		</div>
